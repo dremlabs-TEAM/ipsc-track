@@ -1,12 +1,12 @@
-import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261108-2301';
-import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261108-2301';
-import * as store from './storage.js?v=20261108-2301';
-import { ShotTimer, beep, audioCtx } from './timer.js?v=20261108-2301';
-import { lineChart } from './charts.js?v=20261108-2301';
-import { initDryFire } from './dryfire.js?v=20261108-2301';
-import { initEditor } from './editor.js?v=20261108-2301';
-import { programFromHash } from './program.js?v=20261108-2301';
-import { VERSION } from './version.js?v=20261108-2301';
+import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261108-2328';
+import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261108-2328';
+import * as store from './storage.js?v=20261108-2328';
+import { ShotTimer, beep, audioCtx } from './timer.js?v=20261108-2328';
+import { lineChart } from './charts.js?v=20261108-2328';
+import { initDryFire } from './dryfire.js?v=20261108-2328';
+import { initEditor } from './editor.js?v=20261108-2328';
+import { programFromHash } from './program.js?v=20261108-2328';
+import { VERSION } from './version.js?v=20261108-2328';
 
 // ---------------- utilidades ----------------
 const $ = (s, r = document) => r.querySelector(s);

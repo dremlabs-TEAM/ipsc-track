@@ -4,8 +4,10 @@
 // block (escenario con tiempo) = { id, type: 'stage', name, comp, activatorAt, par, reps, rest, startMode, vary, withMove, restAfter, layout }
 //   comp = { paper, ns, nsTilt, double, doubleNs, styleRandom, hard, hardPreset, poppers, popSize: 'full'|'mini'|'mixed', plates,
 //            mover: 'none'|'random'|'swinger'|'drop'|'slider'|'bobber', moverStyle, moverHard, moverNS, dist, theme }
-// block (recorrido) = { id, type: 'arena', name, moves, delay, activators, restAfter }
-import { uid } from './storage.js?v=20261108-2301';
+// block (recorrido aleatorio) = { id, type: 'arena', name, moves, delay, activators, restAfter }
+// block (recorrido personalizado) = { id, type: 'course', name, positions: [pos], reps, rest, startMode, restAfter }
+//   pos = { id, dir: 'none'|'left'|'right'|'random' (desplazamiento para llegar), time (s en la posición), activatorAt, comp, layout }
+import { uid } from './storage.js?v=20261108-2328';
 
 export const MOVER_LABEL = { none: 'Sin móvil', random: 'Móvil aleatorio', swinger: 'Balancín', drop: 'Drop turner', slider: 'Deslizante', bobber: 'Emergente' };
 export const DIST_LABEL = { close: 'Cerca (6–9 m)', mid: 'Media (7–13 m)', far: 'Lejos (10–18 m)', mixed: 'Mixta' };
@@ -20,6 +22,22 @@ export function newStageBlock() {
     activatorAt: 1.0, par: 3, reps: 10, rest: 5, startMode: 'fixed', vary: false, withMove: false, restAfter: 10, layout: null,
   };
 }
+const defaultComp = () => ({
+  paper: 2, ns: 0, nsTilt: 0, double: 0, doubleNs: 0, styleRandom: false, hard: 0, hardPreset: 'random',
+  poppers: 1, popSize: 'full', plates: 0, mover: 'none', moverStyle: 'normal', moverHard: 'none', moverNS: 'none', dist: 'mixed', theme: -1,
+});
+export function newCoursePosition(dir = 'right') {
+  return { id: uid(), dir, time: 3, activatorAt: 1.0, comp: defaultComp(), layout: null };
+}
+export function newCourseBlock() {
+  return {
+    id: uid(), type: 'course', name: 'Recorrido personalizado',
+    positions: [newCoursePosition('none'), newCoursePosition('right'), newCoursePosition('left')],
+    reps: 3, rest: 15, startMode: 'fixed', restAfter: 10,
+  };
+}
+export const DIR_LABEL = { none: 'Inicio', left: '← Izquierda', right: 'Derecha →', random: '↔ Aleatoria' };
+export const DIR_ARROW = { none: '●', left: '←', right: '→', random: '↔' };
 export function newArenaBlock() {
   return { id: uid(), type: 'arena', name: 'Recorrido con desplazamientos', moves: 10, delay: 1, activators: 'sometimes', restAfter: 10 };
 }
@@ -29,6 +47,9 @@ export function newProgram(name = 'Nuevo entrenamiento') {
 }
 export function exampleProgram() {
   const p = newProgram('Ejemplo · Poppers, móvil y recorrido');
+  const course = newCourseBlock();
+  course.positions[1].comp.mover = 'swinger';
+  p.blocks.push(course);
   const b2 = newArenaBlock(); b2.moves = 8;
   p.blocks.push(b2);
   return p;
@@ -50,6 +71,10 @@ export function compSummary(c) {
 }
 const fmtS = (s) => `${(+s).toLocaleString('es-ES', { maximumFractionDigits: 1 })} s`;
 export function blockSummary(b) {
+  if (b.type === 'course') {
+    const n = b.positions.length;
+    return `${plural(n, 'posición', 'posiciones')} (${plural(Math.max(0, n - 1), 'desplazamiento', 'desplazamientos')}) · ${b.reps}× · descanso ${fmtS(b.rest)}`;
+  }
   if (b.type === 'arena') return `${b.moves ? plural(b.moves, 'desplazamiento', 'desplazamientos') : 'Desplazamientos sin fin'} · flecha a ${fmtS(b.delay)}`;
   return `${compSummary(b.comp)} · ${fmtS(b.par)} máx. · ${b.reps}× · descanso ${fmtS(b.rest)}${b.withMove ? ' · con desplazamiento' : ''}`;
 }
@@ -57,6 +82,10 @@ export function blockSummary(b) {
 export function blockDuration(b, isLast = false) {
   const tail = isLast ? 0 : Math.max(3, b.restAfter || 0);
   if (b.type === 'arena') return (b.moves || 20) * ((b.delay || 1) + 1.6) + 3 + tail;
+  if (b.type === 'course') {
+    const one = b.positions.reduce((t, p) => t + (p.time || 0), 0) + Math.max(0, b.positions.length - 1) * 1.5;
+    return b.reps * one + Math.max(0, b.reps - 1) * b.rest + 3 + tail;
+  }
   return b.reps * b.par + Math.max(0, b.reps - 1) * b.rest + (b.withMove ? b.reps * 1.5 : 0) + 3 + tail;
 }
 export function programDuration(p) {
@@ -100,24 +129,43 @@ export function sanitizeProgram(d) {
     if (b?.type === 'arena') {
       return { id: uid(), type: 'arena', name: String(b.name || 'Recorrido').slice(0, 60), moves: num(b.moves, 10, 0, 200), delay: num(b.delay, 1, 0.3, 10), activators: oneOf(b.activators, ['never', 'sometimes', 'always'], 'sometimes'), restAfter: num(b.restAfter, 10, 0, 600) };
     }
-    const c = b?.comp || {};
-    const paper = num(c.paper, 2, 0, 8);
-    const kindOpts = ['normal', 'ns-side', 'ns-tilt', 'double', 'double-ns', 'random'];
-    const hardOpts = ['random', 'diag', 'band', 'corner', 'side', 'top', 'bottom'];
+    if (b?.type === 'course' && Array.isArray(b.positions) && b.positions.length) {
+      return {
+        id: uid(), type: 'course', name: String(b.name || 'Recorrido').slice(0, 60),
+        positions: b.positions.slice(0, 12).map((p, i) => ({
+          id: uid(), dir: i === 0 ? 'none' : oneOf(p?.dir, ['left', 'right', 'random'], 'right'), time: num(p?.time, 3, 0.5, 60),
+          activatorAt: num(p?.activatorAt, 1, 0.5, 10), comp: sanitizeComp(p?.comp), layout: sanitizeLayout(p?.layout),
+        })),
+        reps: num(b.reps, 3, 1, 100), rest: num(b.rest, 15, 0, 600), startMode: oneOf(b.startMode, ['fixed', 'random'], 'fixed'), restAfter: num(b.restAfter, 10, 0, 600),
+      };
+    }
     return {
       id: uid(), type: 'stage', name: String(b?.name || 'Escenario').slice(0, 60),
-      comp: {
-        paper, ns: num(c.ns, 0, 0, paper), nsTilt: num(c.nsTilt, 0, 0, paper), double: num(c.double, 0, 0, paper), doubleNs: num(c.doubleNs, 0, 0, paper),
-        styleRandom: !!c.styleRandom, hard: num(c.hard, 0, 0, paper), hardPreset: oneOf(c.hardPreset, hardOpts, 'random'),
-        poppers: num(c.poppers, 3, 0, 6), popSize: oneOf(c.popSize, ['full', 'mini', 'mixed'], 'full'), plates: num(c.plates, 0, 0, 6),
-        mover: oneOf(c.mover, Object.keys(MOVER_LABEL), 'none'), moverStyle: oneOf(c.moverStyle, kindOpts, 'normal'),
-        moverHard: oneOf(c.moverHard, ['none', ...hardOpts], 'none'), moverNS: oneOf(c.moverNS, ['none', 'yes', 'random'], 'none'),
-        dist: oneOf(c.dist, Object.keys(DIST_LABEL), 'mixed'), theme: num(c.theme, -1, -1, 4),
-      },
+      comp: sanitizeComp(b?.comp),
       activatorAt: num(b?.activatorAt, 1, 0.5, 10), par: num(b?.par, 3, 0.5, 120), reps: num(b?.reps, 10, 1, 100), rest: num(b?.rest, 5, 0, 600),
       startMode: oneOf(b?.startMode, ['fixed', 'random'], 'fixed'), vary: !!b?.vary, withMove: !!b?.withMove, restAfter: num(b?.restAfter, 10, 0, 600),
-      layout: b?.layout && Array.isArray(b.layout.items) ? b.layout : null,
+      layout: sanitizeLayout(b?.layout),
     };
   });
   return { id: uid(), name: String(d.name || 'Entrenamiento compartido').slice(0, 80), notes: String(d.notes || '').slice(0, 500), created: now, updated: now, blocks };
+}
+
+function sanitizeComp(c = {}) {
+  c = c || {};
+  const paper = num(c.paper, 2, 0, 8);
+  const kindOpts = ['normal', 'ns-side', 'ns-tilt', 'double', 'double-ns', 'random'];
+  const hardOpts = ['random', 'diag', 'band', 'corner', 'side', 'top', 'bottom'];
+  return {
+    paper, ns: num(c.ns, 0, 0, paper), nsTilt: num(c.nsTilt, 0, 0, paper), double: num(c.double, 0, 0, paper), doubleNs: num(c.doubleNs, 0, 0, paper),
+    styleRandom: !!c.styleRandom, hard: num(c.hard, 0, 0, paper), hardPreset: oneOf(c.hardPreset, hardOpts, 'random'),
+    poppers: num(c.poppers, 3, 0, 6), popSize: oneOf(c.popSize, ['full', 'mini', 'mixed'], 'full'), plates: num(c.plates, 0, 0, 6),
+    mover: oneOf(c.mover, Object.keys(MOVER_LABEL), 'none'), moverStyle: oneOf(c.moverStyle, kindOpts, 'normal'),
+    moverHard: oneOf(c.moverHard, ['none', ...hardOpts], 'none'), moverNS: oneOf(c.moverNS, ['none', 'yes', 'random'], 'none'),
+    dist: oneOf(c.dist, Object.keys(DIST_LABEL), 'mixed'), theme: num(c.theme, -1, -1, 4),
+  };
+}
+// La disposición se dibuja en canvas (nunca como HTML); aun así se limita el tamaño
+function sanitizeLayout(l) {
+  if (!l || !Array.isArray(l.items)) return null;
+  return { seed: num(l.seed, 1, 0, 1e12), theme: num(l.theme, 0, 0, 4), manual: !!l.manual, items: l.items.slice(0, 60).filter((i) => i && typeof i === 'object') };
 }
