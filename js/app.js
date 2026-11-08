@@ -1,9 +1,10 @@
-import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js';
-import { Analyzer, ClipRecorder, COLORS } from './pose.js';
-import * as store from './storage.js';
-import { ShotTimer, beep, audioCtx } from './timer.js';
-import { lineChart } from './charts.js';
-import { initDryFire } from './dryfire.js';
+import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261108-2153';
+import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261108-2153';
+import * as store from './storage.js?v=20261108-2153';
+import { ShotTimer, beep, audioCtx } from './timer.js?v=20261108-2153';
+import { lineChart } from './charts.js?v=20261108-2153';
+import { initDryFire } from './dryfire.js?v=20261108-2153';
+import { VERSION } from './version.js?v=20261108-2153';
 
 // ---------------- utilidades ----------------
 const $ = (s, r = document) => r.querySelector(s);
@@ -521,6 +522,32 @@ tabHooks.profile = renderProfile;
 const dry = initDryFire({ toast, ask, renderCards, renderOverall, tipsHTML, getProfile, saveProfile });
 tabHooks.dry = dry.onShow;
 window.ipscTrack.dry = dry;
+
+// ================= ACTUALIZACIONES =================
+// Al abrir la app (y al volver a la pestaña) se consulta version.json sin caché. Si hay una versión
+// más nueva publicada: al abrir se recarga sola una vez; con la app ya en uso se ofrece un aviso.
+const reloadTo = (v) => location.replace(`${location.pathname}?v=${encodeURIComponent(v)}${location.hash}`);
+async function checkForUpdate(auto) {
+  if (VERSION === 'dev') return;
+  try {
+    const r = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const { version } = await r.json();
+    if (!version || version === VERSION) return;
+    let already = null;
+    try { already = sessionStorage.getItem('ipsctrack.reloadedFor'); } catch { /* sin almacenamiento */ }
+    if (auto && already !== version) {
+      try { sessionStorage.setItem('ipsctrack.reloadedFor', version); } catch { /* sin almacenamiento */ }
+      reloadTo(version); return;
+    }
+    const bar = $('#updateBar');
+    bar.classList.remove('hidden');
+    $('#updateBtn').onclick = () => reloadTo(version);
+  } catch { /* sin conexión: se sigue con la versión actual */ }
+}
+checkForUpdate(true);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(false); });
+$('#appVersion').textContent = `Versión ${VERSION}`;
 
 // ================= INICIO =================
 function renderAll() { renderHello(); renderProfile(); loadTimerInputs(); renderTimerHistory(); renderCards($('#liveCards'), null); renderOverall($('#liveOverall'), null); }

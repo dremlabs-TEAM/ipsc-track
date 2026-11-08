@@ -3,10 +3,10 @@
 // cuando la cámara detecta que te has desplazado hacia ese lado, el escenario cambia al siguiente.
 // Si el escenario tiene popper activador: anillos que convergen → brillo → cae → el móvil se activa,
 // a la vez que aparece la dirección (no hay que esperar al móvil para cambiar de escenario).
-import { randomStage } from './course.js';
-import { StageRenderer, THEMES, ACT } from './scene.js';
-import { Analyzer } from './pose.js';
-import { beep, audioCtx } from './timer.js';
+import { randomStage } from './course.js?v=20261108-2153';
+import { StageRenderer, THEMES, ACT } from './scene.js?v=20261108-2153';
+import { Analyzer } from './pose.js?v=20261108-2153';
+import { beep, audioCtx } from './timer.js?v=20261108-2153';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));

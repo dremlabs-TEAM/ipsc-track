@@ -206,6 +206,10 @@ label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); fo
 .refs td small { color: var(--muted); font-size: 11px; }
 .refs input { width: 80px; }
 
+/* aviso de versión nueva */
+.update-bar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 16px; background: #263015; border-bottom: 1px solid #4d6614; color: var(--accent); font-weight: 600; }
+
 /* modal / toast / loading */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 .modal-box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; width: min(520px, 100%); max-height: 90vh; overflow: auto; display: flex; flex-direction: column; gap: 10px; }

@@ -32,6 +32,16 @@ python server.py 8080
 
 Después abre http://localhost:8080. En Windows también puedes usar `iniciar.bat`.
 
+## Publicar una versión nueva
+
+```bash
+python tools/bump_version.py
+git commit -am "Descripción del cambio"
+git push
+```
+
+`bump_version.py` añade la versión a las rutas de todos los archivos propios y actualiza `version.json`. Así los navegadores no usan copias antiguas de la caché, y la app abierta en cualquier dispositivo detecta la versión nueva y se recarga sola.
+
 ## Seguridad
 
 El entrenamiento en seco se hace **siempre con el arma descargada y sin munición en la sala**. Respeta las normas de seguridad de tu club y de tu federación.
