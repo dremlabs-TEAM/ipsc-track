@@ -2,7 +2,12 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="IPSC Track">
+<link rel="apple-touch-icon" href="icon-180.png">
 <title>IPSC Track</title>
 <meta name="description" content="Entrenamiento de tiro práctico: análisis de postura con IA, entrenamiento en seco con escenarios dinámicos, shot timer e historial.">
 <meta property="og:title" content="IPSC Track">
@@ -13,7 +18,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/styles.css?v=20261108-2225">
+<link rel="stylesheet" href="css/styles.css?v=20261108-2239">
 </head>
 <body>
 <header class="topbar">
@@ -91,7 +96,6 @@
       <button class="btn" id="dryEdit">✏️ Editor</button>
     </div>
     <div class="row">
-      <button class="btn" id="dryCamBtn">📷 Cámara</button>
       <button class="btn" id="dryAbort">✕ Detener</button>
       <button class="btn primary" id="dryStart">▶ Empezar</button>
     </div>
@@ -100,9 +104,17 @@
   <ol class="dry-blocks" id="dryBlocks"></ol>
   <div class="dry-layout">
     <div class="dry-main">
-      <div class="dry-stage">
+      <div class="dry-stage" id="dryStage">
         <canvas id="dryScene"></canvas>
         <div class="dry-pip hidden" id="dryPip"><canvas id="dryCam"></canvas></div>
+        <div class="dry-tools">
+          <button class="dry-tool" id="dryCamToggle" data-status="off" title="Mostrar cámara" aria-label="Mostrar u ocultar la cámara" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.6-2h6.8L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="slash" d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <i class="dot"></i>
+          </button>
+          <button class="dry-tool" id="dryFull" title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
+        </div>
+        <div class="dry-rotate" aria-hidden="true">⟳ Gira el móvil para verlo más grande</div>
         <video id="dryVideo" playsinline muted class="hidden"></video>
       </div>
       <div class="dry-hud" id="dryHud"></div>
@@ -287,6 +299,6 @@
 <div id="modal" class="modal hidden"><div class="modal-box" id="modalBox"></div></div>
 <div id="toast" class="toast"></div>
 
-<script type="module" src="js/app.js?v=20261108-2225"></script>
+<script type="module" src="js/app.js?v=20261108-2239"></script>
 </body>
 </html>

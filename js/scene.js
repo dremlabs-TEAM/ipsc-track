@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261108-2225';
+import { rng, PERSPECTIVE } from './course.js?v=20261108-2239';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
@@ -156,12 +156,18 @@ export class StageRenderer {
     this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.bufA = document.createElement('canvas'); this.bufB = document.createElement('canvas');
     this.W = 0; this.frame = 0;
+    // calidad: 2 alta (PC) · 1 media (móvil) · 0 baja. Baja sola si el dispositivo no llega a ~40 fps.
+    this.quality = matchMedia('(pointer: coarse)').matches ? 1 : 2;
+    this.cacheItems = true; // dibuja una sola vez por escenario lo que no se mueve
+    this.dtAvg = 16; this.slowSince = null; this.lastNow = 0;
     this.checkSize(true);
   }
 
   checkSize(force = false) {
-    const cw = this.canvas.clientWidth || 1280, dpr = Math.min(2, window.devicePixelRatio || 1);
-    const W = Math.round(Math.max(960, Math.min(1920, cw * dpr)) / 16) * 16, H = (W * 9) / 16;
+    const q = this.quality;
+    const cw = this.canvas.clientWidth || 1280, dpr = Math.min([1, 1.5, 2][q], window.devicePixelRatio || 1);
+    const maxW = [960, 1280, 1920][q];
+    const W = Math.round(Math.max(640, Math.min(maxW, cw * dpr)) / 16) * 16, H = (W * 9) / 16;
     if (!force && W === this.W) return;
     this.W = W; this.H = H; this.u = H / 720;
     for (const c of [this.canvas, this.bufA, this.bufB]) { c.width = W; c.height = H; }
@@ -741,13 +747,45 @@ export class StageRenderer {
     ctx.restore();
   }
 
+  // Agrupa en capas (canvas) los elementos que no se mueven, respetando el orden de profundidad.
+  // Solo el popper activador y el móvil se redibujan en cada fotograma.
+  buildParts(stage, th, c) {
+    const { W, H } = this, parts = [];
+    const dyn = new Set(stage.act ? [stage.popper, stage.mover].filter(Boolean) : []);
+    const layer = () => { const cv = document.createElement('canvas'); cv.width = W; cv.height = H; return { canvas: cv, ctx: cv.getContext('2d') }; };
+    // la primera capa incluye el fondo; la última, la capa de oscuridad/luz (menos imágenes a pantalla completa por fotograma)
+    let cur = layer();
+    cur.ctx.drawImage(c.bg, 0, 0); c.baseMerged = true;
+    c.cablePts = this.cable(cur.ctx, stage, th);
+    for (const it of stage.sorted) {
+      if (dyn.has(it)) { if (cur) parts.push(cur); parts.push({ item: it }); cur = null; }
+      else { cur ??= layer(); this.item(cur.ctx, it, th, stage, 0); }
+    }
+    cur ??= layer();
+    this.faultLine(cur.ctx);
+    if (c.light) { cur.ctx.drawImage(c.light, 0, 0); c.lightMerged = true; }
+    parts.push(cur);
+    return parts;
+  }
+
   drawStage(ctx, stage, now) {
     const th = THEMES[stage.theme], c = this.stageCache(stage);
-    ctx.drawImage(c.bg, 0, 0);
-    const pts = this.cable(ctx, stage, th);
-    for (const it of stage.sorted) this.item(ctx, it, th, stage, now);
-    this.faultLine(ctx);
-    if (c.light) ctx.drawImage(c.light, 0, 0);
+    if (this.cacheItems) c.parts ??= this.buildParts(stage, th, c);
+    const cached = this.cacheItems && c.parts;
+    if (!cached || !c.baseMerged) ctx.drawImage(c.bg, 0, 0);
+    let pts;
+    if (cached) {
+      for (const part of c.parts) {
+        if (part.canvas) ctx.drawImage(part.canvas, 0, 0);
+        else this.item(ctx, part.item, th, stage, now);
+      }
+      pts = c.cablePts;
+    } else {
+      pts = this.cable(ctx, stage, th);
+      for (const it of stage.sorted) this.item(ctx, it, th, stage, now);
+      this.faultLine(ctx);
+    }
+    if (c.light && !(cached && c.lightMerged)) ctx.drawImage(c.light, 0, 0);
     if (c.glow) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(c.glow, 0, 0); ctx.restore(); }
     this.effects(ctx, stage, now, pts);
   }
@@ -785,7 +823,7 @@ export class StageRenderer {
       const x = base - dir * i * gap;
       const wave = 0.5 + 0.5 * Math.sin(now / 150 - (2 - i) * 1.15);
       ctx.save(); ctx.translate(x, 0);
-      ctx.shadowColor = 'rgba(90,215,255,0.9)'; ctx.shadowBlur = (6 + 14 * wave) * u;
+      ctx.shadowColor = 'rgba(90,215,255,0.9)'; ctx.shadowBlur = this.quality ? (6 + 14 * wave) * u : 0;
       const cg = ctx.createLinearGradient(-cs, 0, cs, 0); cg.addColorStop(0, '#e8fbff'); cg.addColorStop(1, '#5fd3ff');
       ctx.strokeStyle = cg; ctx.globalAlpha = a * (0.28 + 0.72 * wave);
       ctx.lineWidth = h * 0.13; ctx.lineJoin = 'miter'; ctx.lineCap = 'butt';
@@ -795,7 +833,7 @@ export class StageRenderer {
     ctx.globalAlpha = a;
     ctx.font = `700 ${h * 0.4}px Rajdhani, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${h * 0.08}px`;
-    ctx.shadowColor = 'rgba(90,215,255,0.6)'; ctx.shadowBlur = 10 * u; ctx.fillStyle = '#f2fcff';
+    ctx.shadowColor = 'rgba(90,215,255,0.6)'; ctx.shadowBlur = this.quality ? 10 * u : 0; ctx.fillStyle = '#f2fcff';
     ctx.fillText(dir < 0 ? 'IZQUIERDA' : 'DERECHA', -dir * h * 0.55, h * 0.03);
     ctx.restore();
   }
@@ -815,7 +853,7 @@ export class StageRenderer {
     roundRect(ctx, W / 2 - tw / 2, H * 0.5 - th / 2, tw, th, H * 0.025);
     ctx.fillStyle = 'rgba(8,12,18,0.62)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = u; ctx.stroke();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = color; ctx.shadowBlur = 18 * u; ctx.fillStyle = color;
+    ctx.shadowColor = color; ctx.shadowBlur = this.quality ? 18 * u : 0; ctx.fillStyle = color;
     ctx.fillText(big, W / 2, H * 0.5 - (sub ? H * 0.03 : 0));
     if (sub) {
       ctx.shadowBlur = 0; ctx.font = `600 ${ss}px Rajdhani, sans-serif`;
@@ -847,7 +885,7 @@ export class StageRenderer {
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, Math.max(3, 5 * u));
     const col = p < 0.7 ? '#d4ff3a' : p < 0.9 ? '#ffc53d' : '#ff5a4f';
-    ctx.shadowColor = col; ctx.shadowBlur = 8 * u; ctx.fillStyle = col; ctx.fillRect(0, 0, W * p, Math.max(3, 5 * u));
+    ctx.shadowColor = col; ctx.shadowBlur = this.quality ? 8 * u : 0; ctx.fillStyle = col; ctx.fillRect(0, 0, W * p, Math.max(3, 5 * u));
     ctx.shadowBlur = 0;
     ctx.font = `700 ${H * 0.045}px Rajdhani, sans-serif`;
     const txt = `${left.toFixed(1)} s`, tw = ctx.measureText(txt).width + H * 0.04;
@@ -858,7 +896,26 @@ export class StageRenderer {
 
   // ------------------------------------------------------------- frame
   // view: { stage, transition: {from, to, dir, start, dur}, arrow: {dir, since}, big, sub, bigColor, info, warn }
+  // Prepara (en un momento tranquilo) todo lo cacheable de un escenario que se va a mostrar pronto
+  prewarm(stage) {
+    if (!stage) return;
+    const c = this.stageCache(stage);
+    if (this.cacheItems) c.parts ??= this.buildParts(stage, THEMES[stage.theme], c);
+  }
+
+  // Si durante ~2,5 s no se llega a ~40 fps, baja la calidad un escalón (resolución y efectos).
+  measure(now) {
+    const dt = now - this.lastNow; this.lastNow = now;
+    if (!(dt > 0 && dt < 250) || document.visibilityState !== 'visible') return;
+    this.dtAvg = this.dtAvg * 0.94 + dt * 0.06;
+    if (this.dtAvg > 25 && this.quality > 0) {
+      this.slowSince ??= now;
+      if (now - this.slowSince > 2500) { this.quality--; this.slowSince = null; this.dtAvg = 16; this.checkSize(true); }
+    } else this.slowSince = null;
+  }
+
   render(view, now = performance.now()) {
+    this.measure(now);
     if (++this.frame % 30 === 0) this.checkSize();
     const { ctx, W, H } = this;
     ctx.save(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
@@ -871,12 +928,12 @@ export class StageRenderer {
       ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
       for (const [cv, base] of [[this.bufA, off], [this.bufB, off + tr.dir * W]]) {
         ctx.globalAlpha = 1; ctx.drawImage(cv, base, 0);
-        if (blur > 1) { ctx.globalAlpha = 0.28; ctx.drawImage(cv, base - blur, 0); ctx.drawImage(cv, base + blur, 0); }
+        if (blur > 1 && this.quality === 2) { ctx.globalAlpha = 0.28; ctx.drawImage(cv, base - blur, 0); ctx.drawImage(cv, base + blur, 0); }
       }
       ctx.globalAlpha = 1;
       // líneas de velocidad
       const sp = Math.sin(Math.PI * p);
-      if (sp > 0.05) {
+      if (sp > 0.05 && this.quality > 0) {
         const r = rng(Math.floor(now / 40));
         ctx.globalCompositeOperation = 'lighter';
         for (let i = 0; i < 26; i++) {

@@ -4,7 +4,7 @@
 // block (escenario con tiempo) = { id, type: 'stage', name, comp, activatorAt, par, reps, rest, startMode, vary, withMove, restAfter, layout }
 //   comp = { paper, ns, hard, poppers, popSize: 'full'|'mini'|'mixed', plates, mover: 'none'|'random'|'swinger'|'drop'|'slider'|'bobber', dist, theme }
 // block (recorrido) = { id, type: 'arena', name, moves, delay, activators, restAfter }
-import { uid } from './storage.js?v=20261108-2225';
+import { uid } from './storage.js?v=20261108-2239';
 
 export const MOVER_LABEL = { none: 'Sin móvil', random: 'Móvil aleatorio', swinger: 'Balancín', drop: 'Drop turner', slider: 'Deslizante', bobber: 'Emergente' };
 export const DIST_LABEL = { close: 'Cerca (6–9 m)', mid: 'Media (7–13 m)', far: 'Lejos (10–18 m)', mixed: 'Mixta' };

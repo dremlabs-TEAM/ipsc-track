@@ -1,6 +1,6 @@
 // Detección de pose (MediaPipe) + analizador en tiempo real con overlay del esqueleto.
 import { FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
-import { METRICS, computeFrame, median, POINTS, mid } from './metrics.js?v=20261108-2225';
+import { METRICS, computeFrame, median, POINTS, mid } from './metrics.js?v=20261108-2239';
 
 const WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const MODELS = {
@@ -52,9 +52,12 @@ function emptyStats() {
 }
 
 export class Analyzer {
-  constructor({ video, canvas, getProfile, onUpdate, live = false }) {
+  // model: fuerza un modelo (p. ej. 'lite' en el entrenamiento en seco) · maxFps: limita las detecciones por segundo
+  constructor({ video, canvas, getProfile, onUpdate, live = false, model = null, maxFps = 0 }) {
     this.video = video; this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.getProfile = getProfile; this.onUpdate = onUpdate; this.live = live;
+    this.fixedModel = model; this.maxFps = maxFps; this.lastDetect = 0;
+    this.noDraw = false; // true = solo detecta, no pinta la imagen (ahorra CPU si no se muestra)
     this.collectors = new Set();
     this.accumulate = false; this.lastTs = 0; this.lastVT = -1; this.lastUpdate = 0;
     this.fps = 0; this._fpsT = performance.now(); this._fpsN = 0;
@@ -63,14 +66,14 @@ export class Analyzer {
   }
 
   async init() {
-    const model = this.getProfile().model;
+    const model = this.fixedModel || this.getProfile().model;
     this.lm = await createLandmarker(model);
     this.model = model;
     if (!this.running) { this.running = true; this._loop(); }
   }
 
   async ensureModel() {
-    const model = this.getProfile().model;
+    const model = this.fixedModel || this.getProfile().model;
     if (this.lm && this.model === model) return;
     const old = this.lm; this.lm = null;
     old?.close();
@@ -110,7 +113,9 @@ export class Analyzer {
     if (v.readyState < 2 || !v.videoWidth) return;
     if (c.width !== v.videoWidth || c.height !== v.videoHeight) { c.width = v.videoWidth; c.height = v.videoHeight; }
     const isNew = v.currentTime !== this.lastVT;
-    if (isNew && this.lm) {
+    const due = !this.maxFps || this.offline || performance.now() - this.lastDetect >= 1000 / this.maxFps - 2;
+    if (isNew && this.lm && due) {
+      this.lastDetect = performance.now();
       if (Math.abs(v.currentTime - this.lastVT) > 0.6) { this.img = this.world = null; } // salto (seek): no suavizar
       let ts = performance.now(); if (ts <= this.lastTs) ts = this.lastTs + 1; this.lastTs = ts;
       const r = this.lm.detectForVideo(v, ts);
@@ -127,7 +132,7 @@ export class Analyzer {
       else this._lastAccT = null;
       for (const col of this.collectors) col(this.cur);
     }
-    this._draw();
+    if (!this.noDraw) this._draw();
     const now = performance.now();
     if (now - this.lastUpdate > 250) { this.lastUpdate = now; this.onUpdate?.(this); }
   }

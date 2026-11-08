@@ -1,12 +1,12 @@
 // Editor de entrenamientos: crea secuencias de ejercicios (escenarios con tiempo y recorridos),
 // con vista previa del escenario en la que se puede arrastrar cada elemento.
-import { composeStage, stageFromLayout, layoutOf, PERSPECTIVE } from './course.js?v=20261108-2225';
-import { StageRenderer, THEMES, ACT } from './scene.js?v=20261108-2225';
-import * as store from './storage.js?v=20261108-2225';
+import { composeStage, stageFromLayout, layoutOf, PERSPECTIVE } from './course.js?v=20261108-2239';
+import { StageRenderer, THEMES, ACT } from './scene.js?v=20261108-2239';
+import * as store from './storage.js?v=20261108-2239';
 import {
   newProgram, newStageBlock, newArenaBlock, exampleProgram, blockSummary, blockDuration, programDuration, fmtDuration,
   shareUrl, sanitizeProgram, MOVER_LABEL, DIST_LABEL,
-} from './program.js?v=20261108-2225';
+} from './program.js?v=20261108-2239';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -35,6 +35,7 @@ export function initEditor(app) {
   const { toast, ask } = app;
   const canvas = $('#edCanvas'), park = $('#edPark');
   const renderer = new StageRenderer(canvas);
+  renderer.cacheItems = false; // en el editor los elementos se arrastran: se dibujan siempre en vivo
   let curId = null, selBlockId = null, preview = null, selItem = null, drag = null, saveT = null;
 
   const programs = () => store.loadPrograms();

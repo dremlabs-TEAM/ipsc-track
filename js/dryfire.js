@@ -4,12 +4,12 @@
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage } from './course.js?v=20261108-2225';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261108-2225';
-import { Analyzer } from './pose.js?v=20261108-2225';
-import { beep, audioCtx } from './timer.js?v=20261108-2225';
-import * as store from './storage.js?v=20261108-2225';
-import { blockSummary, programDuration, fmtDuration } from './program.js?v=20261108-2225';
+import { randomStage, composeStage, stageFromLayout, lobbyStage } from './course.js?v=20261108-2239';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261108-2239';
+import { Analyzer } from './pose.js?v=20261108-2239';
+import { beep, audioCtx } from './timer.js?v=20261108-2239';
+import * as store from './storage.js?v=20261108-2239';
+import { blockSummary, programDuration, fmtDuration } from './program.js?v=20261108-2239';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -113,7 +113,7 @@ export function initDryFire(app) {
     if (!tabActive() || e.target?.matches?.('input, textarea, select') || !$('#modal').classList.contains('hidden')) return;
     if (e.key === 'ArrowLeft') { keyHeld.left = true; e.preventDefault(); }
     if (e.key === 'ArrowRight') { keyHeld.right = true; e.preventDefault(); }
-    if (e.key === 'Escape' && run) stop('DETENIDO');
+    if (e.key === 'Escape') { if (stageBox.classList.contains('immersive')) { exitFull(); return; } if (run) stop('DETENIDO'); }
   });
   window.addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft') keyHeld.left = false; if (e.key === 'ArrowRight') keyHeld.right = false; });
 
@@ -125,21 +125,24 @@ export function initDryFire(app) {
   const endBeep = () => { beep({ freq: 2200, dur: 0.14 }); timers.push(setTimeout(() => beep({ freq: 2200, dur: 0.14 }), 190)); };
 
   // ---------------- cámara / pose ----------------
+  // Para la arena solo hace falta saber hacia dónde te mueves: modelo rápido, 640×480 y 15 detecciones/s.
+  const isMobile = () => matchMedia('(pointer: coarse)').matches || innerWidth < 760;
+  const showCam = () => P().showCam ?? !isMobile();
   async function ensureCamera() {
     if (!P().camera) return true;
     try {
       if (!stream) {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } }, audio: false });
         video.srcObject = stream; await video.play();
       }
       if (!an) {
-        an = new Analyzer({ video, canvas: camCanvas, getProfile, onUpdate: null });
+        an = new Analyzer({ video, canvas: camCanvas, getProfile, onUpdate: null, model: 'lite', maxFps: 15 });
         an.mirror = true; an.noHud = true;
         $('#modelLoading').classList.remove('hidden');
         try { await an.init(); } finally { $('#modelLoading').classList.add('hidden'); }
         an.collectors.add(onPoseFrame);
       } else await an.ensureModel();
-      $('#dryPip').classList.remove('hidden');
+      applyCamVisibility();
       return true;
     } catch (e) {
       console.error(e);
@@ -147,8 +150,56 @@ export function initDryFire(app) {
       return false;
     }
   }
-  function stopCamera() { stream?.getTracks().forEach((t) => t.stop()); stream = null; $('#dryPip').classList.add('hidden'); }
-  $('#dryCamBtn').onclick = async () => { if (stream) stopCamera(); else if (P().camera) await ensureCamera(); else toast('Activa el modo cámara en Ajustes'); };
+  // icono de cámara sobre el escenario: muestra u oculta la imagen (el seguimiento sigue funcionando)
+  function applyCamVisibility() {
+    const visible = !!stream && showCam();
+    $('#dryPip').classList.toggle('hidden', !visible);
+    if (an) an.noDraw = !visible;
+    const b = $('#dryCamToggle');
+    b.classList.toggle('on', visible);
+    b.title = visible ? 'Ocultar cámara' : 'Mostrar cámara';
+    b.setAttribute('aria-pressed', String(visible));
+  }
+  $('#dryCamToggle').onclick = async () => {
+    if (!P().camera) { toast('Estás en modo sin cámara (teclado). Cámbialo en Ajustes → Seguimiento.'); return; }
+    if (!stream) { P().showCam = true; saveProfile(); await ensureCamera(); return; }
+    P().showCam = !showCam(); saveProfile(); applyCamVisibility();
+  };
+
+  // ---------------- pantalla completa ----------------
+  const stageBox = $('#dryStage');
+  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+  const isFull = () => !!fsElement() || stageBox.classList.contains('immersive');
+  async function enterFull() {
+    const req = stageBox.requestFullscreen || stageBox.webkitRequestFullscreen;
+    if (req) {
+      try {
+        await req.call(stageBox, { navigationUI: 'hide' });
+        try { await screen.orientation?.lock?.('landscape'); } catch { /* no todos los navegadores lo permiten */ }
+        return;
+      } catch { /* sin pantalla completa real: modo inmersivo */ }
+    }
+    stageBox.classList.add('immersive'); document.body.classList.add('no-scroll');
+    if (/iPhone|iPod/.test(navigator.userAgent) && !navigator.standalone && !sessionStorage.getItem('ipsctrack.iosHint')) {
+      try { sessionStorage.setItem('ipsctrack.iosHint', '1'); } catch { /* sin almacenamiento */ }
+      toast('En iPhone, para quitar del todo las barras: Compartir → «Añadir a pantalla de inicio» y abre la app desde ahí', 6000);
+    }
+    updateFullBtn();
+  }
+  function exitFull() {
+    if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    try { screen.orientation?.unlock?.(); } catch { /* nada */ }
+    stageBox.classList.remove('immersive'); document.body.classList.remove('no-scroll');
+    updateFullBtn();
+  }
+  function updateFullBtn() {
+    const b = $('#dryFull'), full = isFull();
+    b.textContent = full ? '✕' : '⛶'; b.title = full ? 'Salir de pantalla completa' : 'Pantalla completa';
+    setTimeout(() => scene.checkSize(), 60);
+  }
+  $('#dryFull').onclick = () => (isFull() ? exitFull() : enterFull());
+  document.addEventListener('fullscreenchange', updateFullBtn);
+  document.addEventListener('webkitfullscreenchange', updateFullBtn);
 
   // posición lateral (centro de cadera) en espejo: «izquierda» = tu izquierda
   function onPoseFrame(cur) {
@@ -208,6 +259,7 @@ export function initDryFire(app) {
       run.repStage = stageForBlock(b, 0);
       run.lobby = lobbyStage(run.repStage.theme);
       view.stage = b.withMove ? run.lobby : run.repStage;
+      warm(run.repStage, run.lobby);
     }
   }
 
@@ -227,9 +279,14 @@ export function initDryFire(app) {
   }
 
   // ---- ejercicio «recorrido» ----
+  // prepara en segundo plano un escenario que se va a mostrar enseguida (evita tirones al cambiar)
+  const warm = (...stages) => timers.push(setTimeout(() => stages.forEach((st) => scene.prewarm(st)), 40));
+
   function startScene(now) {
     run.sceneAt = now; run.stage.actStart = null; run.stage.actSpeed = 1; run.actFired = false;
     view.stage = run.stage; view.transition = null; view.arrow = null;
+    run.next = randomStage(Date.now(), { activators: blk().activators, prevTheme: run.stage.theme });
+    warm(run.next);
     setPhase('scene', now);
   }
 
@@ -255,6 +312,7 @@ export function initDryFire(app) {
       run.lobby = lobbyStage(run.repStage.theme);
       run.restUntil = now + b.rest * 1000; run.lastTick = null;
       view.stage = b.withMove ? run.lobby : run.repStage;
+      warm(run.repStage, run.lobby);
       setPhase('rest', now);
     } else endBlock(now);
   }
@@ -370,7 +428,7 @@ export function initDryFire(app) {
         return;
       case 'arrow':
         if (movedEnough(now, p)) {
-          run.next = randomStage(Date.now(), { activators: b.activators, prevTheme: run.stage.theme });
+          run.next ??= randomStage(Date.now(), { activators: b.activators, prevTheme: run.stage.theme });
           sweep(now, run.stage, run.next, run.arrow.dir);
           setPhase('transition', now);
         }
@@ -453,6 +511,8 @@ export function initDryFire(app) {
         + cell('TIEMPO TOTAL', `${time.toFixed(1)} s`);
     }
     const hud = $('#dryHud'); hud.innerHTML = html; hud.dataset.cols = (html.match(/<div>/g) || []).length;
+    const st = !P().camera ? 'key' : !stream ? 'off' : lastPose && now - lastPose.t < 600 ? 'ok' : 'lost';
+    const tb = $('#dryCamToggle'); if (tb.dataset.status !== st) tb.dataset.status = st;
   }
 
   function tick(now) {
