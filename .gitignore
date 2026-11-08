@@ -1,0 +1,14 @@
+# Material de referencia de terceros (no se publica)
+video/
+
+# Configuración local del editor / herramientas
+.claude/
+.vscode/
+.idea/
+
+# Sistema
+Thumbs.db
+desktop.ini
+.DS_Store
+__pycache__/
+*.pyc
