@@ -2,9 +2,10 @@
 //
 // program = { id, name, notes, created, updated, blocks: [block] }
 // block (escenario con tiempo) = { id, type: 'stage', name, comp, activatorAt, par, reps, rest, startMode, vary, withMove, restAfter, layout }
-//   comp = { paper, ns, hard, poppers, popSize: 'full'|'mini'|'mixed', plates, mover: 'none'|'random'|'swinger'|'drop'|'slider'|'bobber', dist, theme }
+//   comp = { paper, ns, nsTilt, double, doubleNs, styleRandom, hard, hardPreset, poppers, popSize: 'full'|'mini'|'mixed', plates,
+//            mover: 'none'|'random'|'swinger'|'drop'|'slider'|'bobber', moverStyle, moverHard, moverNS, dist, theme }
 // block (recorrido) = { id, type: 'arena', name, moves, delay, activators, restAfter }
-import { uid } from './storage.js?v=20261108-2239';
+import { uid } from './storage.js?v=20261108-2301';
 
 export const MOVER_LABEL = { none: 'Sin móvil', random: 'Móvil aleatorio', swinger: 'Balancín', drop: 'Drop turner', slider: 'Deslizante', bobber: 'Emergente' };
 export const DIST_LABEL = { close: 'Cerca (6–9 m)', mid: 'Media (7–13 m)', far: 'Lejos (10–18 m)', mixed: 'Mixta' };
@@ -12,7 +13,10 @@ export const DIST_LABEL = { close: 'Cerca (6–9 m)', mid: 'Media (7–13 m)', f
 export function newStageBlock() {
   return {
     id: uid(), type: 'stage', name: 'Poppers + móvil',
-    comp: { paper: 2, ns: 0, hard: 0, poppers: 3, popSize: 'full', plates: 0, mover: 'random', dist: 'mixed', theme: -1 },
+    comp: {
+      paper: 2, ns: 0, nsTilt: 0, double: 0, doubleNs: 0, styleRandom: false, hard: 0, hardPreset: 'random',
+      poppers: 3, popSize: 'full', plates: 0, mover: 'random', moverStyle: 'normal', moverHard: 'none', moverNS: 'none', dist: 'mixed', theme: -1,
+    },
     activatorAt: 1.0, par: 3, reps: 10, rest: 5, startMode: 'fixed', vary: false, withMove: false, restAfter: 10, layout: null,
   };
 }
@@ -33,7 +37,12 @@ export function exampleProgram() {
 const plural = (n, a, b) => `${n} ${n === 1 ? a : b}`;
 export function compSummary(c) {
   const parts = [];
-  if (c.paper) parts.push(plural(c.paper, 'tarjeta', 'tarjetas') + (c.ns ? ` (${c.ns} NS)` : '') + (c.hard ? ` (${c.hard} cob.)` : ''));
+  if (c.paper) {
+    const st = c.styleRandom ? ['estilos aleatorios'] : [
+      c.ns && `${c.ns} NS`, c.nsTilt && `${c.nsTilt} NS incl.`, c.double && `${c.double} dobles`, c.doubleNs && `${c.doubleNs} dobles NS`, c.hard && `${c.hard} cob.`,
+    ].filter(Boolean);
+    parts.push(plural(c.paper, 'tarjeta', 'tarjetas') + (st.length ? ` (${st.join(', ')})` : ''));
+  }
   if (c.poppers) parts.push(plural(c.poppers, c.popSize === 'mini' ? 'mini popper' : 'popper', c.popSize === 'mini' ? 'mini poppers' : 'poppers'));
   if (c.plates) parts.push(plural(c.plates, 'placa', 'placas'));
   if (c.mover && c.mover !== 'none') parts.push(MOVER_LABEL[c.mover].toLowerCase());
@@ -93,9 +102,18 @@ export function sanitizeProgram(d) {
     }
     const c = b?.comp || {};
     const paper = num(c.paper, 2, 0, 8);
+    const kindOpts = ['normal', 'ns-side', 'ns-tilt', 'double', 'double-ns', 'random'];
+    const hardOpts = ['random', 'diag', 'band', 'corner', 'side', 'top', 'bottom'];
     return {
       id: uid(), type: 'stage', name: String(b?.name || 'Escenario').slice(0, 60),
-      comp: { paper, ns: num(c.ns, 0, 0, paper), hard: num(c.hard, 0, 0, paper), poppers: num(c.poppers, 3, 0, 6), popSize: oneOf(c.popSize, ['full', 'mini', 'mixed'], 'full'), plates: num(c.plates, 0, 0, 6), mover: oneOf(c.mover, Object.keys(MOVER_LABEL), 'none'), dist: oneOf(c.dist, Object.keys(DIST_LABEL), 'mixed'), theme: num(c.theme, -1, -1, 4) },
+      comp: {
+        paper, ns: num(c.ns, 0, 0, paper), nsTilt: num(c.nsTilt, 0, 0, paper), double: num(c.double, 0, 0, paper), doubleNs: num(c.doubleNs, 0, 0, paper),
+        styleRandom: !!c.styleRandom, hard: num(c.hard, 0, 0, paper), hardPreset: oneOf(c.hardPreset, hardOpts, 'random'),
+        poppers: num(c.poppers, 3, 0, 6), popSize: oneOf(c.popSize, ['full', 'mini', 'mixed'], 'full'), plates: num(c.plates, 0, 0, 6),
+        mover: oneOf(c.mover, Object.keys(MOVER_LABEL), 'none'), moverStyle: oneOf(c.moverStyle, kindOpts, 'normal'),
+        moverHard: oneOf(c.moverHard, ['none', ...hardOpts], 'none'), moverNS: oneOf(c.moverNS, ['none', 'yes', 'random'], 'none'),
+        dist: oneOf(c.dist, Object.keys(DIST_LABEL), 'mixed'), theme: num(c.theme, -1, -1, 4),
+      },
       activatorAt: num(b?.activatorAt, 1, 0.5, 10), par: num(b?.par, 3, 0.5, 120), reps: num(b?.reps, 10, 1, 100), rest: num(b?.rest, 5, 0, 600),
       startMode: oneOf(b?.startMode, ['fixed', 'random'], 'fixed'), vary: !!b?.vary, withMove: !!b?.withMove, restAfter: num(b?.restAfter, 10, 0, 600),
       layout: b?.layout && Array.isArray(b.layout.items) ? b.layout : null,

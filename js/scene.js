@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261108-2239';
+import { rng, PERSPECTIVE } from './course.js?v=20261108-2301';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
@@ -126,14 +126,83 @@ function drawTarget(ctx, ox, oy, k, o) {
     ctx.restore();
   }
   // cobertura dura (pintada en negro)
-  if (o.hard) {
-    const f = o.hard.frac * 45, side = o.hard.side;
-    const poly = side > 0 ? [[45 - f + 3, -1], [47, -1], [47, 58], [45 - f - 3, 58]] : [[-2, -1], [f - 3, -1], [f + 3, 58], [-2, 58]];
-    tPath(ctx, poly, ox, oy, s, sx); ctx.fillStyle = '#121314'; ctx.fill();
-  }
+  if (o.hard) hardCover(ctx, ox, oy, s, sx, o.hard);
   if (sx < 1) { ctx.fillStyle = `rgba(0,0,0,${(1 - sx) * 0.45})`; ctx.fillRect(ox - 24 * s, oy - 58 * s, 48 * s, 59 * s); }
   ctx.restore();
   tPath(ctx, T_OUT, ox, oy, s, sx); ctx.lineWidth = Math.max(0.7, 0.3 * s); ctx.strokeStyle = 'rgba(40,25,10,0.35)'; ctx.stroke();
+}
+
+// Estilo de una tarjeta (compatible con escenarios guardados antes de existir los estilos)
+export function styleOf(it) {
+  if (it.style?.kind) return it.style;
+  const st = { kind: it.ns ? 'ns-side' : 'normal', ns: it.ns ? { side: it.ns.side || 1, angle: 0 } : null, hard: null };
+  if (it.hard) st.hard = { preset: 'side', angle: it.hard.side > 0 ? -6 : 186, amount: it.hard.frac ?? 0.4 };
+  return st;
+}
+// En las dobles, cuánto más arriba (m) está la tarjeta de atrás; en la doble con no-shoot, el no-shoot
+// va de pie entre las dos y asoma una franja de NS_PEEK por encima de la tarjeta de delante.
+export const DOUBLE_OFFSET = { double: 0.38, 'double-ns': 0.33 };
+const NS_PEEK = 0.07;
+// altura total (m) de la tarjeta o pareja de tarjetas
+export function stackHeight(st, mini = false) {
+  return (mini ? 2 / 3 : 1) * (0.57 + (DOUBLE_OFFSET[st?.kind] || 0));
+}
+
+// Cobertura negra: tapa la parte de la tarjeta que queda hacia `angle` (0° derecha, 90° abajo).
+// amount = fracción del ancho de la tarjeta (medido en esa dirección) que queda tapada.
+// preset 'band': tapa los dos extremos y deja visible una franja central.
+function hardCover(ctx, ox, oy, s, sx, h) {
+  const a = ((Number(h.angle) || 0) * Math.PI) / 180, amount = Math.min(0.95, Math.max(0.03, Number(h.amount) || 0.4));
+  const nx = Math.cos(a), ny = Math.sin(a);
+  let lo = Infinity, hi = -Infinity;
+  for (const [x, y] of T_OUT) { const p = (x - 22.5) * nx + (y - 28.5) * ny; lo = Math.min(lo, p); hi = Math.max(hi, p); }
+  const span = hi - lo, big = 200;
+  ctx.save();
+  ctx.translate(ox, oy - 28.5 * s); ctx.scale(sx, 1); ctx.rotate(a);
+  ctx.fillStyle = '#121314';
+  if (h.preset === 'band') {
+    const half = (amount / 2) * span;
+    ctx.fillRect((hi - half) * s, -big * s, big * s, 2 * big * s);
+    ctx.fillRect((lo - big) * s, -big * s, (big + half) * s, 2 * big * s);
+  } else {
+    ctx.fillRect((hi - amount * span) * s, -big * s, big * s, 2 * big * s);
+  }
+  // ligero brillo de pintura mate
+  ctx.globalAlpha = 0.06; ctx.fillStyle = '#ffffff';
+  ctx.fillRect((hi - (h.preset === 'band' ? (amount / 2) : amount) * span) * s, -big * s, 1.2 * s, 2 * big * s);
+  ctx.restore();
+}
+
+// Tarjeta con su estilo: normal, no-shoot inclinado, doble superpuesta o doble con no-shoot en medio.
+// (ox, oy) = centro del borde inferior de la tarjeta de delante.
+export function drawStyledTarget(ctx, ox, oy, k, st, o) {
+  const m = o.mini ? 2 / 3 : 1, sx = o.sx ?? 1, fog = o.fog;
+  const kind = st?.kind || 'normal';
+  if (Math.abs(sx) < 0.05) { // de canto (drop turner girando)
+    const hgt = stackHeight(st, o.mini) * k;
+    ctx.fillStyle = fog('#5d4a30'); ctx.fillRect(ox - Math.max(1, 0.004 * k), oy - hgt, Math.max(2, 0.008 * k), hgt);
+    return;
+  }
+  const card = (y, extra) => drawTarget(ctx, ox, y, k, { mini: o.mini, fog, sx, pasters: extra.pasters || [], hard: extra.hard || null });
+  if (kind === 'double' || kind === 'double-ns') {
+    card(oy - DOUBLE_OFFSET[kind] * m * k, { pasters: o.pasters2 });
+    if (kind === 'double-ns') {
+      // no-shoot de pie entre las dos tarjetas: tapa la parte baja de la de atrás y asoma como franja blanca
+      drawTarget(ctx, ox, oy - NS_PEEK * m * k, k, { white: true, mini: o.mini, fog, sx, pasters: [] });
+    }
+    card(oy, { hard: st.hard, pasters: o.pasters });
+    return;
+  }
+  card(oy, { hard: st.hard, pasters: o.pasters });
+  if ((kind === 'ns-tilt' || kind === 'ns-side') && st.ns) {
+    const side = st.ns.side || 1, tilt = kind === 'ns-tilt';
+    const ang = (((tilt ? st.ns.angle ?? side * 22 : 0)) * Math.PI) / 180;
+    const dx = (tilt ? 0.17 : 0.26) * side * m, drop = tilt ? 0.1 * m : 0;
+    ctx.save();
+    ctx.translate(ox + dx * k * sx, oy - 0.285 * m * k + drop * k); ctx.scale(sx, 1); ctx.rotate(ang);
+    drawTarget(ctx, 0, 0.285 * m * k, k, { white: true, mini: o.mini, fog, pasters: [] });
+    ctx.restore();
+  }
 }
 
 function popperPath(ctx, P, s) {
@@ -407,22 +476,21 @@ export class StageRenderer {
 
   paperItem(ctx, it, th) {
     const lx = this.lat(it.x, it.d), g = this.P(lx, 0, it.d), k = g.k, fog = this.fogFn(th, it.d);
-    const h = it.mini ? 0.38 : 0.57, base = 0.6;
-    this.shadow(ctx, th, g.x, g.y, 0.45 * k, 0.07 * k);
-    if (it.ns) {
-      // no-shoot por delante, desplazado
-      const nd = it.d - 0.15, nl = lx + it.ns.side * 0.26, ng = this.P(nl, 0, nd);
-      this.paperOnly(ctx, it, th, g, k, base, h, fog);
+    const st = styleOf(it), m = it.mini ? 2 / 3 : 1, base = 0.6;
+    this.shadow(ctx, th, g.x, g.y, (st.kind === 'ns-tilt' ? 0.55 : 0.45) * k, 0.07 * k);
+    if (st.kind === 'ns-side') {
+      // no-shoot en su propio soporte, por delante y desplazado
+      const nd = it.d - 0.15, nl = lx + (st.ns?.side || 1) * 0.26, ng = this.P(nl, 0, nd);
+      this.stand(ctx, g.x, g.y, g.y - base * k, k, fog);
+      drawTarget(ctx, g.x, g.y - base * k, k, { mini: it.mini, hard: st.hard, pasters: it.pasters, fog });
       this.shadow(ctx, th, ng.x, ng.y, 0.4 * ng.k, 0.06 * ng.k);
       this.stand(ctx, ng.x, ng.y, ng.y - (base - 0.04) * ng.k, ng.k, this.fogFn(th, nd));
-      drawTarget(ctx, ng.x, ng.y - (base - 0.03) * ng.k, ng.k, { white: true, fog: this.fogFn(th, nd), pasters: [] });
+      drawTarget(ctx, ng.x, ng.y - (base - 0.03) * ng.k, ng.k, { white: true, mini: it.mini, fog: this.fogFn(th, nd), pasters: [] });
       return;
     }
-    this.paperOnly(ctx, it, th, g, k, base, h, fog);
-  }
-  paperOnly(ctx, it, th, g, k, base, h, fog) {
-    this.stand(ctx, g.x, g.y, g.y - base * k, k, fog);
-    drawTarget(ctx, g.x, g.y - base * k, k, { mini: it.mini, hard: it.hard, pasters: it.pasters, fog });
+    const top = base + (DOUBLE_OFFSET[st.kind] || 0) * m; // en las dobles los listones llegan a la tarjeta de atrás
+    this.stand(ctx, g.x, g.y, g.y - top * k, k, fog);
+    drawStyledTarget(ctx, g.x, g.y - base * k, k, st, { mini: it.mini, fog, pasters: it.pasters, pasters2: it.pasters2 });
   }
 
   popperItem(ctx, it, th, stage, now) {
@@ -572,6 +640,8 @@ export class StageRenderer {
     const t = stage.actStart != null && stage.act ? actClock(stage, now) - ACT.moverStart : -1;
     const lx = this.lat(it.x, it.d), d = it.d, fog = this.fogFn(th, d), fogB = this.fogFn(th, d + 0.3);
     const steel = (f) => f('#3a3f45');
+    const ts = it.tstyle?.kind ? it.tstyle : { kind: 'normal', ns: null, hard: null }, stack = stackHeight(ts);
+    const ns = it.fixedNS; // no-shoot fijo delante del recorrido
     if (it.mtype === 'swinger') {
       const s = it.side; // la oscilación sale hacia el centro
       const wallC = lx - s * 0.6, pivotX = lx + s * 0.55, pivotH = 2.35, L = 0.72;
@@ -585,9 +655,10 @@ export class StageRenderer {
       ctx.save(); ctx.translate(pv.x, pv.y); ctx.rotate(theta);
       ctx.fillStyle = steel(fogB); ctx.fillRect(-0.02 * k, 0, 0.04 * k, (L + 0.05) * k);
       ctx.fillRect(-0.12 * k, L * k, 0.24 * k, 0.03 * k);
-      drawTarget(ctx, 0, (L + 0.6) * k, k, { fog: fogB, pasters: [] });
+      drawStyledTarget(ctx, 0, (L + 0.03 + stack) * k, k, ts, { fog: fogB });
       ctx.restore();
       ctx.fillStyle = '#16191c'; ctx.beginPath(); ctx.arc(pv.x, pv.y, 0.035 * k, 0, Math.PI * 2); ctx.fill();
+      if (ns) this.fixedNoShoot(ctx, th, pivotX + ns.dx, d + 0.15, pivotH - (L + 0.03 + stack / 2), ns.angle);
       this.wall(ctx, th, wallC, d, 1.35, 2.15, it.style, it.seed);
     } else if (it.mtype === 'drop') {
       const pivotH = 2.6, L = 0.66;
@@ -599,8 +670,9 @@ export class StageRenderer {
       const pv = this.P(lx, pivotH, d + 0.3), k = pv.k;
       ctx.save(); ctx.translate(pv.x, pv.y); ctx.rotate(theta);
       ctx.fillStyle = steel(fogB); ctx.fillRect(-0.02 * k, 0, 0.04 * k, (L + 0.05) * k);
-      drawTarget(ctx, 0, (L + 0.6) * k, k, { fog: fogB, sx, pasters: [] });
+      drawStyledTarget(ctx, 0, (L + 0.03 + stack) * k, k, ts, { fog: fogB, sx });
       ctx.restore();
+      if (ns) this.fixedNoShoot(ctx, th, lx + ns.dx, d + 0.15, pivotH - (L + 0.03 + stack / 2), ns.angle);
       // pórtico: dos paredes + dintel
       this.wall(ctx, th, lx - 0.85, d, 0.7, 2.2, it.style, it.seed);
       this.wall(ctx, th, lx + 0.85, d, 0.7, 2.2, it.style, it.seed + 1);
@@ -621,9 +693,10 @@ export class StageRenderer {
       ctx.fillStyle = fogB('#2a2e33'); ctx.fillRect(cg.x - 0.22 * k, cg.y - 0.13 * k, 0.44 * k, 0.1 * k);
       ctx.fillStyle = '#101214'; for (const dx of [-0.15, 0.15]) { ctx.beginPath(); ctx.arc(cg.x + dx * k, cg.y - 0.03 * k, 0.035 * k, 0, Math.PI * 2); ctx.fill(); }
       ctx.save(); ctx.translate(cg.x, cg.y - 0.13 * k); ctx.rotate(-dir * vel * 0.03);
-      this.stand(ctx, 0, 0, -0.5 * k, k, fogB);
-      drawTarget(ctx, 0, -0.5 * k, k, { fog: fogB, pasters: [] });
+      this.stand(ctx, 0, 0, -(0.5 + stack - 0.57) * k, k, fogB);
+      drawStyledTarget(ctx, 0, -0.5 * k, k, ts, { fog: fogB });
       ctx.restore();
+      if (ns) this.fixedNoShoot(ctx, th, lx + ns.dx, d + 0.15, 0.63 + stack / 2, ns.angle);
       this.wall(ctx, th, lx - 0.95, d, 0.85, 2.1, it.style, it.seed);
       this.wall(ctx, th, lx + 0.95, d, 0.85, 2.1, it.style, it.seed + 1);
     } else if (it.mtype === 'bobber') {
@@ -636,8 +709,9 @@ export class StageRenderer {
       // guías verticales
       ctx.fillStyle = steel(this.fogFn(th, d + 0.3));
       for (const dx of [-0.3, 0.3]) { const a = this.P(lx + dx, 0, d + 0.3), b = this.P(lx + dx, 1.9, d + 0.3); ctx.fillRect(a.x - 0.02 * a.k, b.y, 0.04 * a.k, a.y - b.y); }
-      const bottomH = 0.02 + 1.2 * up; // en reposo queda entero detrás de la barricada
-      drawTarget(ctx, tg.x, tg.y - bottomH * k, k, { fog: this.fogFn(th, d + 0.25), pasters: [] });
+      const bottomH = 1.08 - stack + up * (stack + 0.05); // en reposo queda entero detrás de la barricada
+      drawStyledTarget(ctx, tg.x, tg.y - bottomH * k, k, ts, { fog: this.fogFn(th, d + 0.25) });
+      if (ns) this.fixedNoShoot(ctx, th, lx + ns.dx, d + 0.12, 1.13 + stack / 2, ns.angle);
       // barricada baja con sacos
       this.wall(ctx, th, lx, d, 1.6, 1.1, 'ply', it.seed);
       const r = rng(it.seed + 9);
@@ -647,6 +721,20 @@ export class StageRenderer {
         ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(p.x - 0.2 * kk, p.y - 0.02 * kk, 0.4 * kk, 0.02 * kk);
       }
     }
+  }
+
+  // no-shoot fijo sobre dos postes, delante del recorrido del móvil
+  fixedNoShoot(ctx, th, lx, d, centerH, angle = 0) {
+    const fogN = this.fogFn(th, d), k = this.k(d), bottomH = centerH - 0.285;
+    ctx.fillStyle = fogN('#3a3f45');
+    for (const dx of [-0.09, 0.09]) {
+      const a = this.P(lx + dx, 0, d), b = this.P(lx + dx, bottomH + 0.12, d);
+      ctx.fillRect(a.x - 0.012 * k, b.y, 0.024 * k, a.y - b.y);
+    }
+    const c = this.P(lx, centerH, d);
+    ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(((Number(angle) || 0) * Math.PI) / 180);
+    drawTarget(ctx, 0, 0.285 * k, k, { white: true, fog: fogN, pasters: [] });
+    ctx.restore();
   }
 
   moverAnchor(it) {

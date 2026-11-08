@@ -4,12 +4,12 @@
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage } from './course.js?v=20261108-2239';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261108-2239';
-import { Analyzer } from './pose.js?v=20261108-2239';
-import { beep, audioCtx } from './timer.js?v=20261108-2239';
-import * as store from './storage.js?v=20261108-2239';
-import { blockSummary, programDuration, fmtDuration } from './program.js?v=20261108-2239';
+import { randomStage, composeStage, stageFromLayout, lobbyStage } from './course.js?v=20261108-2301';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261108-2301';
+import { Analyzer } from './pose.js?v=20261108-2301';
+import { beep, audioCtx } from './timer.js?v=20261108-2301';
+import * as store from './storage.js?v=20261108-2301';
+import { blockSummary, programDuration, fmtDuration } from './program.js?v=20261108-2301';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));

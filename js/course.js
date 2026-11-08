@@ -3,12 +3,14 @@
 //
 // Cada escenario: { seed, theme, items: [...], sorted: [...], act: { type } | null, popper, mover, actStart }
 // Tipos de item:
-//   paper  { x, d, mini, ns: {side}|null, hard: {side, frac}|null, pasters }
+//   paper  { x, d, mini, style, pasters, pasters2 }
+//          style = { kind: 'normal'|'ns-side'|'ns-tilt'|'double'|'double-ns', ns: { side, angle }|null,
+//                    hard: { preset, angle, amount }|null }   (cobertura negra pintada)
 //   popper { x, d, mini, activator }
 //   plate  { x, d }
 //   wall   { x, d, w, h, style }          (barrera visual)
 //   barrel { x, d, color } · tires { x, d, n } · cone { x, d }
-//   mover  { x, d, mtype: 'swinger'|'drop'|'slider'|'bobber', side, dir, style }
+//   mover  { x, d, mtype: 'swinger'|'drop'|'slider'|'bobber', side, dir, style, tstyle, fixedNS: { dx, angle }|null }
 // x es la posición lateral normalizada en pantalla (-1..1), d la distancia en metros.
 
 export const PERSPECTIVE = { F: 2.6, HOR: 0.36, CAMH: 1.25, SPREAD: 0.37 };
@@ -28,6 +30,43 @@ export function normHalf(widthM, d) {
 }
 
 const MOVER_W = { swinger: 2.5, drop: 2.5, slider: 2.7, bobber: 1.7 };
+
+// ---------------------------------------------------------------- estilos de tarjeta
+export const TARGET_KINDS = ['normal', 'ns-side', 'ns-tilt', 'double', 'double-ns'];
+export const KIND_LABEL = { normal: 'Normal', 'ns-side': 'No-shoot lateral', 'ns-tilt': 'No-shoot inclinado', double: 'Doble superpuesta', 'double-ns': 'Doble con no-shoot' };
+// cobertura negra: ángulo = dirección hacia la que queda la parte tapada (0° derecha, 90° abajo, -90° arriba)
+export const HARD_PRESETS = {
+  diag: { label: 'Diagonal', angle: 35, amount: 0.5 },
+  band: { label: 'Franja diagonal', angle: 35, amount: 0.6 },
+  corner: { label: 'Esquina', angle: 45, amount: 0.25 },
+  side: { label: 'Lateral', angle: 0, amount: 0.4 },
+  top: { label: 'Arriba', angle: -90, amount: 0.35 },
+  bottom: { label: 'Abajo', angle: 90, amount: 0.35 },
+};
+const KIND_WIDTH = { normal: 0.5, 'ns-side': 0.76, 'ns-tilt': 0.8, double: 0.5, 'double-ns': 0.5 };
+export const kindWidth = (k) => KIND_WIDTH[k] || 0.5;
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+
+export function makeHard(preset, r = Math.random) {
+  if (preset === 'random') preset = Object.keys(HARD_PRESETS)[Math.floor(r() * 6)];
+  const p = HARD_PRESETS[preset] || HARD_PRESETS.diag;
+  const flip = preset !== 'top' && preset !== 'bottom' && r() < 0.5;
+  return { preset, angle: Math.round(p.angle + (flip ? 180 : 0) + (r() - 0.5) * 16), amount: +clampN(p.amount + (r() - 0.5) * 0.14, 0.12, 0.85).toFixed(2) };
+}
+export function randomKind(r = Math.random) {
+  const x = r();
+  return x < 0.42 ? 'normal' : x < 0.55 ? 'ns-side' : x < 0.71 ? 'ns-tilt' : x < 0.86 ? 'double' : 'double-ns';
+}
+// estilo completo de una tarjeta; hard: null | 'random' | nombre de preset
+export function makeStyle(kind = 'normal', r = Math.random, hard = null) {
+  if (kind === 'random') kind = randomKind(r);
+  const side = r() < 0.5 ? -1 : 1;
+  const st = { kind, ns: null, hard: null };
+  if (kind === 'ns-side' || kind === 'double-ns') st.ns = { side, angle: 0 };
+  if (kind === 'ns-tilt') st.ns = { side, angle: Math.round(side * (14 + r() * 22)) };
+  if (hard) st.hard = makeHard(hard, r);
+  return st;
+}
 const WALL_STYLES = ['ply', 'mesh', 'banner', 'ply', 'mesh'];
 const BARREL_COLORS = ['#2f5f9e', '#2f5f9e', '#1f2a36', '#8e2d2a', '#3f6b3a'];
 
@@ -61,7 +100,9 @@ export function randomStage(seed = Date.now(), opts = {}) {
   let act = null, popper = null, mover = null;
   if (hasAct) {
     const mtype = pick(MOVER_TYPES);
-    mover = { type: 'mover', mtype, d: mtype === 'bobber' ? rand(9, 11) : rand(10.5, 12.5), style: pick(WALL_STYLES), seed: Math.floor(r() * 1e9), dir: r() < 0.5 ? -1 : 1 };
+    mover = { type: 'mover', mtype, d: mtype === 'bobber' ? rand(9, 11) : rand(10.5, 12.5), style: pick(WALL_STYLES), seed: Math.floor(r() * 1e9), dir: r() < 0.5 ? -1 : 1,
+      tstyle: makeStyle(r() < 0.6 ? 'normal' : randomKind(r), r, r() < 0.2 ? 'random' : null),
+      fixedNS: r() < 0.25 ? { dx: +((r() - 0.5) * 0.5).toFixed(2), angle: Math.round((r() - 0.5) * 30) } : null };
     if (place(mover, MOVER_W[mtype], [-0.62, 0.62])) {
       mover.side = mover.x <= 0 ? 1 : -1; // el balancín sale hacia el centro
       popper = { type: 'popper', d: rand(7, 9.5), mini: r() < 0.35, activator: true, seed: Math.floor(r() * 1e9) };
@@ -76,10 +117,9 @@ export function randomStage(seed = Date.now(), opts = {}) {
   const nPaper = act ? 2 + Math.floor(r() * 2) : 2 + Math.floor(r() * 3);
   for (let i = 0; i < nPaper; i++) {
     const d = rand(6.6, 14);
-    const ns = r() < 0.22 ? { side: r() < 0.5 ? -1 : 1 } : null;
-    const hard = r() < 0.18 ? { side: r() < 0.5 ? -1 : 1, frac: rand(0.28, 0.5) } : null;
-    const t = { type: 'paper', d, mini: d > 10.5 && r() < 0.2, ns, hard, pasters: pasters(), seed: Math.floor(r() * 1e9) };
-    place(t, 0.5 + (ns ? 0.26 : 0));
+    const style = makeStyle(randomKind(r), r, r() < 0.22 ? 'random' : null);
+    const t = { type: 'paper', d, mini: d > 10.5 && r() < 0.2, style, pasters: pasters(), pasters2: pasters(), seed: Math.floor(r() * 1e9) };
+    place(t, kindWidth(style.kind));
   }
   // --- metal suelto ---
   if (r() < (act ? 0.2 : 0.4)) place({ type: 'plate', d: rand(7, 11), seed: Math.floor(r() * 1e9) }, 0.35);
@@ -129,7 +169,11 @@ export function stageFromLayout(layout) {
 
 // Crea un escenario con la composición pedida (cantidades) colocada automáticamente.
 export function composeStage(comp = {}, seed = Date.now()) {
-  const c = { paper: 2, ns: 0, hard: 0, poppers: 3, popSize: 'full', plates: 0, mover: 'none', dist: 'mixed', theme: -1, props: true, ...comp };
+  const c = {
+    paper: 2, ns: 0, nsTilt: 0, double: 0, doubleNs: 0, styleRandom: false, hard: 0, hardPreset: 'random',
+    poppers: 3, popSize: 'full', plates: 0, mover: 'none', moverStyle: 'normal', moverHard: 'none', moverNS: 'none',
+    dist: 'mixed', theme: -1, props: true, ...comp,
+  };
   const r = rng(seed);
   const pick = (a) => a[Math.floor(r() * a.length)];
   const rand = (a, b) => a + r() * (b - a);
@@ -166,20 +210,28 @@ export function composeStage(comp = {}, seed = Date.now()) {
   let nPoppers = c.poppers;
   if (c.mover && c.mover !== 'none') {
     const mtype = c.mover === 'random' ? pick(MOVER_TYPES) : c.mover;
-    mover = { item: { type: 'mover', mtype, d: mtype === 'bobber' ? rand(9, 11) : rand(10.5, 12.5), style: pick(WALL_STYLES), seed: seedOf(), dir: r() < 0.5 ? -1 : 1 }, w: MOVER_W[mtype], maxD: 15 };
+    const moverHard = c.moverHard === 'none' ? null : c.moverHard === 'random' ? (r() < 0.5 ? 'random' : null) : c.moverHard;
+    const fixedNS = c.moverNS === 'yes' || (c.moverNS === 'random' && r() < 0.5) ? { dx: +((r() - 0.5) * 0.5).toFixed(2), angle: Math.round((r() - 0.5) * 30) } : null;
+    mover = { item: { type: 'mover', mtype, d: mtype === 'bobber' ? rand(9, 11) : rand(10.5, 12.5), style: pick(WALL_STYLES), seed: seedOf(), dir: r() < 0.5 ? -1 : 1, tstyle: makeStyle(c.moverStyle || 'normal', r, moverHard), fixedNS }, w: MOVER_W[mtype], maxD: 15 };
     activator = { item: { type: 'popper', d: rand(Math.max(6.5, dMin), Math.min(11, dMax)), mini: mini(), activator: true, seed: seedOf() }, w: 0.5, maxD: 14 };
     nPoppers = Math.max(0, nPoppers - 1);
   }
   for (let i = 0; i < nPoppers; i++) row.push({ item: { type: 'popper', d: rand(dMin, dMax), mini: mini(), activator: false, seed: seedOf() }, w: 0.5, maxD: 19 });
   for (let i = 0; i < c.plates; i++) row.push({ item: { type: 'plate', d: rand(dMin, dMax), seed: seedOf() }, w: 0.35, maxD: 19 });
   // tarjetas: reparte no-shoots y coberturas entre ellas
-  const idx = Array.from({ length: c.paper }, (_, i) => i).sort(() => r() - 0.5);
-  const nsSet = new Set(idx.slice(0, Math.min(c.ns, c.paper)));
-  const hardSet = new Set(idx.slice(c.paper - Math.min(c.hard, c.paper)));
+  // estilos: por cantidades (el resto normales) o aleatorios; la cobertura se suma a cualquier estilo
+  let kinds = [];
+  if (c.styleRandom) kinds = Array.from({ length: c.paper }, () => randomKind(r));
+  else {
+    for (const [k, n] of [['ns-side', c.ns], ['ns-tilt', c.nsTilt], ['double', c.double], ['double-ns', c.doubleNs]]) for (let i = 0; i < n; i++) kinds.push(k);
+    kinds = kinds.slice(0, c.paper);
+    while (kinds.length < c.paper) kinds.push('normal');
+  }
+  kinds.sort(() => r() - 0.5);
+  const hardIdx = new Set(Array.from({ length: c.paper }, (_, i) => i).sort(() => r() - 0.5).slice(0, c.styleRandom ? Math.round(c.paper * 0.25 * r() * 2) : Math.min(c.hard, c.paper)));
   for (let i = 0; i < c.paper; i++) {
-    const ns = nsSet.has(i) ? { side: r() < 0.5 ? -1 : 1 } : null;
-    const hard = hardSet.has(i) ? { side: r() < 0.5 ? -1 : 1, frac: rand(0.28, 0.5) } : null;
-    row.push({ item: { type: 'paper', d: rand(dMin, dMax), mini: false, ns, hard, pasters: pasters(), seed: seedOf() }, w: 0.5 + (ns ? 0.26 : 0), maxD: 19 });
+    const style = makeStyle(kinds[i], r, hardIdx.has(i) ? (c.hardPreset || 'random') : null);
+    row.push({ item: { type: 'paper', d: rand(dMin, dMax), mini: false, style, pasters: pasters(), pasters2: pasters(), seed: seedOf() }, w: kindWidth(style.kind), maxD: 19 });
   }
   row.sort(() => r() - 0.5);
   if (mover) {

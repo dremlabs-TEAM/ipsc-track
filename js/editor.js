@@ -1,12 +1,12 @@
 // Editor de entrenamientos: crea secuencias de ejercicios (escenarios con tiempo y recorridos),
 // con vista previa del escenario en la que se puede arrastrar cada elemento.
-import { composeStage, stageFromLayout, layoutOf, PERSPECTIVE } from './course.js?v=20261108-2239';
-import { StageRenderer, THEMES, ACT } from './scene.js?v=20261108-2239';
-import * as store from './storage.js?v=20261108-2239';
+import { composeStage, stageFromLayout, layoutOf, PERSPECTIVE, makeStyle, randomKind, TARGET_KINDS, KIND_LABEL, HARD_PRESETS, kindWidth } from './course.js?v=20261108-2301';
+import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261108-2301';
+import * as store from './storage.js?v=20261108-2301';
 import {
   newProgram, newStageBlock, newArenaBlock, exampleProgram, blockSummary, blockDuration, programDuration, fmtDuration,
   shareUrl, sanitizeProgram, MOVER_LABEL, DIST_LABEL,
-} from './program.js?v=20261108-2239';
+} from './program.js?v=20261108-2301';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -18,7 +18,7 @@ const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 const MOVER_SIZE = { swinger: [2.5, 2.4], drop: [2.5, 2.4], slider: [2.7, 2.2], bobber: [1.7, 1.8] };
 function itemSize(it) {
   switch (it.type) {
-    case 'paper': return [0.5 + (it.ns ? 0.5 : 0), 1.17];
+    case 'paper': { const st = styleOf(it); return [kindWidth(st.kind) + 0.05, 0.6 + stackHeight(st, it.mini)]; }
     case 'popper': return [0.45, it.mini ? 0.66 : 0.95];
     case 'plate': return [0.35, 1.15];
     case 'wall': return [it.w, it.h];
@@ -75,6 +75,8 @@ export function initEditor(app) {
   };
 
   function ensureLayouts(p) {
+    const defComp = newStageBlock().comp;
+    for (const b of p.blocks) if (b.type === 'stage') b.comp = { ...defComp, ...b.comp };
     for (const b of p.blocks) if (b.type === 'stage' && !b.layout) b.layout = layoutOf(composeStage(b.comp, Date.now() + Math.floor(Math.random() * 1e6)));
   }
 
@@ -195,14 +197,25 @@ export function initEditor(app) {
           <label>Nombre<input data-k="name" value="${esc(b.name)}" maxlength="60"></label>
           <h4>Composición</h4>
           <div class="ed-grid">
-            ${numField('comp.paper', 'Tarjetas', c.paper, 0, 8)}
-            ${numField('comp.ns', '…con no‑shoot', c.ns, 0, c.paper)}
-            ${numField('comp.hard', '…con cobertura', c.hard, 0, c.paper)}
+            ${numField('comp.paper', 'Tarjetas (puestos)', c.paper, 0, 8)}
+            <label class="switch ed-full"><input type="checkbox" data-k="comp.styleRandom" ${c.styleRandom ? 'checked' : ''}> Estilos de tarjeta aleatorios</label>
+            <span class="${c.styleRandom ? 'hidden' : ''}">
+              ${numField('comp.ns', '…no‑shoot lateral', c.ns, 0, c.paper)}
+              ${numField('comp.nsTilt', '…no‑shoot inclinado', c.nsTilt, 0, c.paper)}
+              ${numField('comp.double', '…dobles superpuestas', c.double, 0, c.paper)}
+              ${numField('comp.doubleNs', '…dobles con no‑shoot', c.doubleNs, 0, c.paper)}
+              ${numField('comp.hard', '…con cobertura negra', c.hard, 0, c.paper)}
+              <label>Tipo de cobertura<select data-k="comp.hardPreset">${opt('random', 'Aleatoria', c.hardPreset)}${Object.entries(HARD_PRESETS).map(([k, p]) => opt(k, p.label, c.hardPreset)).join('')}</select></label>
+            </span>
             ${numField('comp.poppers', 'Poppers', c.poppers, 0, 6)}
             <label>Tamaño poppers<select data-k="comp.popSize">${opt('full', 'Normal (85 cm)', c.popSize)}${opt('mini', 'Mini (56 cm)', c.popSize)}${opt('mixed', 'Mezclados', c.popSize)}</select></label>
             ${numField('comp.plates', 'Placas', c.plates, 0, 6)}
             <label>Móvil<select data-k="comp.mover">${Object.entries(MOVER_LABEL).map(([k, l]) => opt(k, l, c.mover)).join('')}</select></label>
-            <span class="${c.mover === 'none' ? 'hidden' : ''}" id="edActWrap">${numField('activatorAt', 'Popper activador cae a los', b.activatorAt, 0.5, 10, 0.1, 's')}</span>
+            <span class="${c.mover === 'none' ? 'hidden' : ''}" id="edActWrap">${numField('activatorAt', 'Popper activador cae a los', b.activatorAt, 0.5, 10, 0.1, 's')}
+              <label>Tarjeta del móvil<select data-k="comp.moverStyle">${opt('random', 'Aleatoria', c.moverStyle)}${TARGET_KINDS.map((k) => opt(k, KIND_LABEL[k], c.moverStyle)).join('')}</select></label>
+              <label>Cobertura en el móvil<select data-k="comp.moverHard">${opt('none', 'Ninguna', c.moverHard)}${opt('random', 'Aleatoria', c.moverHard)}${Object.entries(HARD_PRESETS).map(([k, p]) => opt(k, p.label, c.moverHard)).join('')}</select></label>
+              <label>No‑shoot fijo delante<select data-k="comp.moverNS">${opt('none', 'No', c.moverNS)}${opt('yes', 'Sí', c.moverNS)}${opt('random', 'Aleatorio', c.moverNS)}</select></label>
+            </span>
             <label>Distancias<select data-k="comp.dist">${Object.entries(DIST_LABEL).map(([k, l]) => opt(k, l, c.dist)).join('')}</select></label>
             <label>Ambiente<select data-k="comp.theme">${opt(-1, 'Aleatorio', c.theme)}${THEMES.map((t, i) => opt(i, t.name, c.theme)).join('')}</select></label>
           </div>
@@ -222,8 +235,9 @@ export function initEditor(app) {
           <div class="row between"><h3>Vista previa</h3>
             <div class="row"><button class="btn small" id="edRegen">🎲 Otra disposición</button><button class="btn small" id="edAct" ${c.mover === 'none' ? 'disabled' : ''}>▶ Ver activación</button></div></div>
           <canvas id="edCanvasHost"></canvas>
-          <p class="muted small" id="edHint">Arrastra cualquier elemento: izquierda/derecha para moverlo de lado, arriba/abajo para alejarlo o acercarlo.</p>
+          <p class="muted small" id="edHint">Arrastra cualquier elemento: izquierda/derecha para moverlo de lado, arriba/abajo para alejarlo o acercarlo. Toca una tarjeta o un móvil para cambiar su estilo.</p>
           <p class="ed-warn hidden" id="edWarn"></p>
+          <div class="ed-item hidden" id="edItem"></div>
           <div class="row end"><button class="btn" id="edTry">▶ Probar este ejercicio</button></div>
         </div>
       </div>`;
@@ -257,7 +271,13 @@ export function initEditor(app) {
     }
     if (k.startsWith('comp.')) {
       const ck = k.slice(5); b.comp[ck] = v;
-      if (ck === 'paper') { b.comp.ns = Math.min(b.comp.ns, v); b.comp.hard = Math.min(b.comp.hard, v); }
+      const styleKeys = ['ns', 'nsTilt', 'double', 'doubleNs'];
+      if (styleKeys.includes(ck)) { const others = styleKeys.filter((x) => x !== ck).reduce((t, x) => t + (b.comp[x] || 0), 0); b.comp[ck] = Math.max(0, Math.min(v, b.comp.paper - others)); }
+      if (ck === 'paper') {
+        let room = v;
+        for (const x of styleKeys) { b.comp[x] = Math.min(b.comp[x] || 0, room); room -= b.comp[x]; }
+        b.comp.hard = Math.min(b.comp.hard, v);
+      }
       if (ck === 'mover' && v !== 'none' && b.comp.poppers < 1) b.comp.poppers = 1;
       if (ck === 'poppers' && v < 1 && b.comp.mover !== 'none') b.comp.poppers = 1;
       b.layout = layoutOf(composeStage(b.comp, Date.now()));
@@ -272,7 +292,7 @@ export function initEditor(app) {
   // ------------------------------------------------------------ vista previa + arrastrar
   function loadPreview() {
     const b = block(); if (!b?.layout) return;
-    preview = stageFromLayout(b.layout); selItem = null;
+    preview = stageFromLayout(b.layout); selItem = null; renderItemPanel();
     const missing = composeCheck(b);
     const w = $('#edWarn'); if (w) { w.classList.toggle('hidden', !missing); w.textContent = missing ? `⚠ No caben todos los elementos (${missing} sin colocar). Reduce cantidades o usa distancias mayores.` : ''; }
   }
@@ -308,7 +328,7 @@ export function initEditor(app) {
   }
   canvas.addEventListener('pointerdown', (e) => {
     const pt = toCanvas(e), it = pick(pt);
-    selItem = it;
+    if (it !== selItem) { selItem = it; renderItemPanel(); }
     if (!it) return;
     const bb = bbox(it);
     drag = { it, offX: pt.x - bb.gx, offY: pt.y - bb.gy, moved: false };
@@ -331,15 +351,78 @@ export function initEditor(app) {
   const endDrag = () => {
     if (!drag) return;
     const b = block();
-    if (drag.moved && b) {
-      b.layout = layoutOf(preview);
-      if (b.vary) { b.vary = false; const s = $('[data-k="vary"]'); if (s) s.value = 'false'; toast('Has ajustado la disposición: se usará la misma en todas las repeticiones'); }
-      persist();
-    }
+    if (drag.moved && b) { commitLayout(); renderItemPanel(); }
     drag = null; canvas.style.cursor = 'default';
   };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+
+  // ------------------------------------------------------------ estilo de la tarjeta seleccionada
+  const range = (key, label, v, min, max, step, unit) =>
+    `<label>${label}<span class="ed-range"><input type="range" data-st="${key}" min="${min}" max="${max}" step="${step}" value="${v}"><output data-unit="${unit}">${v}${unit}</output></span></label>`;
+  const cloneStyle = (st) => ({ kind: st.kind, ns: st.ns ? { ...st.ns } : null, hard: st.hard ? { ...st.hard } : null });
+  const moverStyle = (it) => (it.tstyle?.kind ? it.tstyle : { kind: 'normal', ns: null, hard: null });
+
+  function renderItemPanel() {
+    const host = $('#edItem'); if (!host) return;
+    const it = selItem;
+    if (!it || !preview?.items.includes(it) || (it.type !== 'paper' && it.type !== 'mover')) { host.classList.add('hidden'); host.innerHTML = ''; return; }
+    const isMover = it.type === 'mover', st = isMover ? moverStyle(it) : styleOf(it), h = st.hard;
+    host.innerHTML = `
+      <div class="row between"><b>${isMover ? `Móvil · ${MOVER_LABEL[it.mtype]}` : 'Tarjeta seleccionada'} <span class="muted">· ${it.d.toFixed(1)} m</span></b>
+        <button class="btn small" data-st="random">🎲 Estilo aleatorio</button></div>
+      <div class="ed-grid">
+        <label>${isMover ? 'Tarjeta del móvil' : 'Estilo'}<select data-st="kind">${TARGET_KINDS.map((k) => opt(k, KIND_LABEL[k], st.kind)).join('')}</select></label>
+        ${st.ns ? `<label>Lado del no‑shoot<select data-st="nsSide">${opt(-1, 'Izquierda', st.ns.side)}${opt(1, 'Derecha', st.ns.side)}</select></label>` : ''}
+        ${st.kind === 'ns-tilt' ? range('nsAngle', 'Inclinación del no‑shoot', st.ns.angle, -45, 45, 1, '°') : ''}
+        ${isMover ? '' : `<label>Tamaño<select data-st="mini">${opt('false', 'Normal', String(!!it.mini))}${opt('true', 'Mini (2/3)', String(!!it.mini))}</select></label>`}
+        <label>Cobertura negra<select data-st="hard">${opt('none', 'Ninguna', h?.preset || 'none')}${Object.entries(HARD_PRESETS).map(([k, p]) => opt(k, p.label, h?.preset || 'none')).join('')}</select></label>
+        ${h ? range('hardAngle', 'Ángulo de la cobertura', Math.round(h.angle), -180, 180, 1, '°') + range('hardAmount', 'Cuánto tapa', Math.round(h.amount * 100), 5, 90, 1, '%') : ''}
+        ${h ? '<label>&nbsp;<button class="btn small" data-st="flip">↔ Invertir cobertura</button></label>' : ''}
+        ${isMover ? `<label class="switch ed-full"><input type="checkbox" data-st="fixedNS" ${it.fixedNS ? 'checked' : ''}> No‑shoot fijo delante del recorrido</label>` : ''}
+        ${isMover && it.fixedNS ? range('nsDx', 'Posición del no‑shoot', Math.round(it.fixedNS.dx * 100), -60, 60, 1, ' cm') + range('nsFixAngle', 'Inclinación', it.fixedNS.angle, -45, 45, 1, '°') : ''}
+      </div>`;
+    host.classList.remove('hidden');
+  }
+
+  function onStyle(e) {
+    const el = e.target.closest?.('[data-st]'); if (!el || !selItem || !preview) return;
+    const key = el.dataset.st, it = selItem, isMover = it.type === 'mover';
+    let st = cloneStyle(isMover ? moverStyle(it) : styleOf(it)), rerender = false;
+    switch (key) {
+      case 'random': st = makeStyle(randomKind(), Math.random, Math.random() < 0.35 ? 'random' : null); rerender = true; break;
+      case 'kind': {
+        const fresh = makeStyle(el.value);
+        if (fresh.ns && st.ns) { fresh.ns.side = st.ns.side; if (fresh.kind === 'ns-tilt') fresh.ns.angle = Math.abs(fresh.ns.angle) * st.ns.side; }
+        st = { ...fresh, hard: st.hard }; rerender = true; break;
+      }
+      case 'nsSide': st.ns.side = Number(el.value); if (st.kind === 'ns-tilt') st.ns.angle = Math.abs(st.ns.angle || 22) * st.ns.side; rerender = true; break;
+      case 'nsAngle': st.ns.angle = Number(el.value); break;
+      case 'mini': it.mini = el.value === 'true'; break;
+      case 'hard': st.hard = el.value === 'none' ? null : { preset: el.value, angle: HARD_PRESETS[el.value].angle, amount: HARD_PRESETS[el.value].amount }; rerender = true; break;
+      case 'hardAngle': st.hard.angle = Number(el.value); break;
+      case 'hardAmount': st.hard.amount = Number(el.value) / 100; break;
+      case 'flip': st.hard.angle = ((st.hard.angle + 360) % 360) - 180; rerender = true; break;
+      case 'fixedNS': it.fixedNS = el.checked ? { dx: 0, angle: 0 } : null; rerender = true; break;
+      case 'nsDx': it.fixedNS.dx = Number(el.value) / 100; break;
+      case 'nsFixAngle': it.fixedNS.angle = Number(el.value); break;
+      default: return;
+    }
+    if (isMover) it.tstyle = st; else { it.style = st; delete it.ns; delete it.hard; }
+    const out = el.parentElement?.querySelector('output'); if (out) out.textContent = `${el.value}${out.dataset.unit}`;
+    commitLayout();
+    if (rerender) renderItemPanel();
+  }
+  // guarda la disposición tras un cambio manual (arrastre o estilo)
+  function commitLayout() {
+    const b = block(); if (!b || !preview) return;
+    b.layout = layoutOf(preview);
+    if (b.vary) { b.vary = false; const s = $('[data-k="vary"]'); if (s) s.value = 'false'; toast('Has ajustado el escenario a mano: se usará el mismo en todas las repeticiones'); }
+    persist(); renderBlocks();
+  }
+  $('#edMain').addEventListener('input', (e) => { if (e.target.dataset?.st && e.target.type === 'range') onStyle(e); });
+  $('#edMain').addEventListener('change', (e) => { if (e.target.dataset?.st && e.target.type !== 'range') onStyle(e); });
+  $('#edMain').addEventListener('click', (e) => { const b = e.target.closest?.('button[data-st]'); if (b) onStyle(e); });
 
   function overlay(now) {
     const ctx = renderer.ctx, u = renderer.u;
