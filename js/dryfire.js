@@ -1,9 +1,10 @@
 // Entrenamiento en seco «Arena».
 // Secuencia: escenario → beep (solo al empezar) → al segundo aparece la dirección arriba →
 // cuando la cámara detecta que te has desplazado hacia ese lado, el escenario cambia al siguiente.
-// Si el escenario tiene popper activador: anillos que convergen → brillo → cae → el móvil se activa → flecha.
+// Si el escenario tiene popper activador: anillos que convergen → brillo → cae → el móvil se activa,
+// a la vez que aparece la dirección (no hay que esperar al móvil para cambiar de escenario).
 import { randomStage } from './course.js';
-import { StageRenderer, THEMES, ACT, MOVER_DUR, activationTotal } from './scene.js';
+import { StageRenderer, THEMES, ACT } from './scene.js';
 import { Analyzer } from './pose.js';
 import { beep, audioCtx } from './timer.js';
 
@@ -218,13 +219,11 @@ export function initDryFire(app) {
       return;
     }
     if (run.phase === 'scene') {
-      const delay = P().delay * 1000, st = run.stage;
-      let readyAt = run.sceneAt + delay;
-      if (st.act) {
-        if (!run.actFired && now >= run.sceneAt + delay) fireActivation(now);
-        readyAt = st.actStart != null ? st.actStart + activationTotal(st) + 300 : Infinity;
+      // la dirección aparece siempre al mismo tiempo, haya o no móvil (no se espera a que termine)
+      if (now >= run.sceneAt + P().delay * 1000) {
+        if (run.stage.act && !run.actFired) fireActivation(now);
+        showArrow(now);
       }
-      if (now >= readyAt) showArrow(now);
       return;
     }
     if (run.phase === 'arrow') {
@@ -250,6 +249,7 @@ export function initDryFire(app) {
   }
 
   function trigger(now, dir) {
+    clearTimers(); // si te vas antes de que caiga el popper, no suenan efectos del escenario anterior
     run.moveTimes.push((now - run.arrow.since) / 1000);
     run.next = randomStage(Date.now(), { activators: P().activators, prevTheme: run.stage.theme });
     view.arrow = null;
