@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261108-2153';
+import { rng, PERSPECTIVE } from './course.js?v=20261108-2225';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
@@ -22,6 +22,16 @@ export const THEMES = [
 export const ACT = { ringStart: 0, ringDur: 1150, ringGap: 260, glowStart: 1050, glowPeak: 1500, fallStart: 1560, fallDur: 560, cableStart: 1720, cableDur: 420, moverStart: 2150 };
 export const MOVER_DUR = { swinger: 4300, drop: 3000, slider: 2400, bobber: 4200 };
 export const activationTotal = (stage) => (stage?.act ? ACT.moverStart + MOVER_DUR[stage.act.type] : 0);
+// Reloj de la activación. Con actSpeed > 1 la onda, el brillo y la caída se aceleran
+// (para que el popper caiga al segundo elegido en el editor); el móvil va siempre a velocidad real.
+export function actClock(stage, now) {
+  if (stage?.actStart == null) return -1;
+  const real = now - stage.actStart, sp = stage.actSpeed || 1, pre = ACT.moverStart / sp;
+  return real < pre ? real * sp : ACT.moverStart + (real - pre);
+}
+// Momento (ms desde actStart, tiempo real) en que el popper empieza a caer y en que arranca el móvil
+export const fallAtReal = (speed = 1) => ACT.fallStart / speed;
+export const moverAtReal = (speed = 1) => ACT.moverStart / speed;
 
 // ---------------------------------------------------------------- utilidades
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
@@ -412,7 +422,7 @@ export class StageRenderer {
   popperItem(ctx, it, th, stage, now) {
     const lx = this.lat(it.x, it.d), g = this.P(lx, 0, it.d), k = g.k, fog = this.fogFn(th, it.d);
     const P = it.mini ? POP.mini : POP.full, s = k / 100;
-    const t = it.activator && stage.actStart != null ? now - stage.actStart : -1;
+    const t = it.activator ? actClock(stage, now) : -1;
     const fall = t < 0 ? 0 : clamp01((t - ACT.fallStart) / ACT.fallDur);
     const ang = (popperFall(fall) * Math.PI) / 180;
     this.shadow(ctx, th, g.x, g.y, 0.42 * k, 0.07 * k);
@@ -553,7 +563,7 @@ export class StageRenderer {
 
   // ------------------------------------------------------------- móviles
   moverItem(ctx, it, th, stage, now) {
-    const t = stage.actStart != null ? now - stage.actStart - ACT.moverStart : -1;
+    const t = stage.actStart != null && stage.act ? actClock(stage, now) - ACT.moverStart : -1;
     const lx = this.lat(it.x, it.d), d = it.d, fog = this.fogFn(th, d), fogB = this.fogFn(th, d + 0.3);
     const steel = (f) => f('#3a3f45');
     if (it.mtype === 'swinger') {
@@ -677,7 +687,7 @@ export class StageRenderer {
   // --- efectos de activación (encima de la iluminación para que brillen)
   effects(ctx, stage, now, cablePts) {
     if (stage.actStart == null || !stage.popper?._screen) return;
-    const t = now - stage.actStart, sc = stage.popper._screen, P = sc.P, s = sc.s, u = this.u;
+    const t = actClock(stage, now), sc = stage.popper._screen, P = sc.P, s = sc.s, u = this.u;
     const cx = sc.hx, cy = sc.hy - P.cy * s * Math.cos(sc.ang), R = P.r * s;
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
     // anillos que convergen
@@ -793,16 +803,22 @@ export class StageRenderer {
   centerHud(ctx, big, sub, color = '#d4ff3a') {
     const { W, H, u } = this;
     ctx.save();
-    ctx.font = `700 ${H * 0.11}px Rajdhani, sans-serif`;
+    let fs = H * 0.11;
+    ctx.font = `700 ${fs}px Rajdhani, sans-serif`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${H * 0.006}px`;
-    const tw = Math.max(ctx.measureText(big).width, sub ? W * 0.3 : 0) + H * 0.12, th = H * (sub ? 0.24 : 0.17);
+    const bw = ctx.measureText(big).width;
+    if (bw > W * 0.82) { fs *= (W * 0.82) / bw; ctx.font = `700 ${fs}px Rajdhani, sans-serif`; }
+    let ss = H * 0.034;
+    ctx.save(); ctx.font = `600 ${ss}px Rajdhani, sans-serif`; const sw = sub ? ctx.measureText(sub).width : 0; ctx.restore();
+    if (sw > W * 0.86) ss *= (W * 0.86) / sw;
+    const tw = Math.min(W * 0.94, Math.max(ctx.measureText(big).width, sub ? Math.min(sw, W * 0.86) : 0, sub ? W * 0.3 : 0) + H * 0.12), th = H * (sub ? 0.24 : 0.17);
     roundRect(ctx, W / 2 - tw / 2, H * 0.5 - th / 2, tw, th, H * 0.025);
     ctx.fillStyle = 'rgba(8,12,18,0.62)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = u; ctx.stroke();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = color; ctx.shadowBlur = 18 * u; ctx.fillStyle = color;
     ctx.fillText(big, W / 2, H * 0.5 - (sub ? H * 0.03 : 0));
     if (sub) {
-      ctx.shadowBlur = 0; ctx.font = `600 ${H * 0.034}px Rajdhani, sans-serif`;
+      ctx.shadowBlur = 0; ctx.font = `600 ${ss}px Rajdhani, sans-serif`;
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
       ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillText(sub, W / 2, H * 0.5 + H * 0.06);
     }
@@ -822,6 +838,21 @@ export class StageRenderer {
       roundRect(ctx, this.W / 2 - ww / 2, H * 0.17, ww, H * 0.06, H * 0.03); ctx.fillStyle = 'rgba(160,20,24,0.75)'; ctx.fill();
       ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(warn, this.W / 2, H * 0.2);
     }
+    ctx.restore();
+  }
+
+  // tiempo máximo del ejercicio: barra fina arriba + cifra discreta
+  timerHud(ctx, elapsed, par) {
+    const { W, H, u } = this, p = clamp01(elapsed / par), left = Math.max(0, par - elapsed);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, Math.max(3, 5 * u));
+    const col = p < 0.7 ? '#d4ff3a' : p < 0.9 ? '#ffc53d' : '#ff5a4f';
+    ctx.shadowColor = col; ctx.shadowBlur = 8 * u; ctx.fillStyle = col; ctx.fillRect(0, 0, W * p, Math.max(3, 5 * u));
+    ctx.shadowBlur = 0;
+    ctx.font = `700 ${H * 0.045}px Rajdhani, sans-serif`;
+    const txt = `${left.toFixed(1)} s`, tw = ctx.measureText(txt).width + H * 0.04;
+    roundRect(ctx, W - tw - H * 0.025, H * 0.025, tw, H * 0.065, H * 0.015); ctx.fillStyle = 'rgba(8,12,18,0.55)'; ctx.fill();
+    ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, W - tw / 2 - H * 0.025, H * 0.06);
     ctx.restore();
   }
 
@@ -858,6 +889,8 @@ export class StageRenderer {
       this.drawStage(ctx, view.stage, now);
     } else { ctx.fillStyle = '#0b0d10'; ctx.fillRect(0, 0, W, H); }
     ctx.drawImage(this.vignette(), 0, 0);
+    if (view.dim) { ctx.fillStyle = `rgba(4,6,10,${view.dim})`; ctx.fillRect(0, 0, W, H); }
+    if (view.timer) this.timerHud(ctx, view.timer.elapsed, view.timer.par);
     if (view.info || view.warn) this.infoHud(ctx, view.info || '', view.warn);
     if (view.arrow) this.arrowHud(ctx, view.arrow.dir, view.arrow.since, now);
     if (view.big) this.centerHud(ctx, view.big, view.sub, view.bigColor);

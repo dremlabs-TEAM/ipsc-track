@@ -1,15 +1,19 @@
-// Entrenamiento en seco «Arena».
-// Secuencia: escenario → beep (solo al empezar) → al segundo aparece la dirección arriba →
-// cuando la cámara detecta que te has desplazado hacia ese lado, el escenario cambia al siguiente.
-// Si el escenario tiene popper activador: anillos que convergen → brillo → cae → el móvil se activa,
-// a la vez que aparece la dirección (no hay que esperar al móvil para cambiar de escenario).
-import { randomStage } from './course.js?v=20261108-2153';
-import { StageRenderer, THEMES, ACT } from './scene.js?v=20261108-2153';
-import { Analyzer } from './pose.js?v=20261108-2153';
-import { beep, audioCtx } from './timer.js?v=20261108-2153';
+// Entrenamiento en seco: reproductor de entrenamientos.
+//
+// · Arena libre (un único ejercicio de desplazamientos) o entrenamientos creados en el Editor.
+// · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
+// · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
+//   El popper activador cae en el segundo elegido y pone en marcha el móvil.
+import { randomStage, composeStage, stageFromLayout, lobbyStage } from './course.js?v=20261108-2225';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261108-2225';
+import { Analyzer } from './pose.js?v=20261108-2225';
+import { beep, audioCtx } from './timer.js?v=20261108-2225';
+import * as store from './storage.js?v=20261108-2225';
+import { blockSummary, programDuration, fmtDuration } from './program.js?v=20261108-2225';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ---------------- efectos de sonido sutiles ----------------
 function noiseBuffer(ac, dur) {
@@ -41,14 +45,13 @@ const sfx = {
     g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + 0.16);
   },
-  tick() {
-    const ac = audioCtx(), t = ac.currentTime;
-    [[880, 0], [1320, 0.06]].forEach(([fr, dt]) => {
-      const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = fr;
-      g.gain.setValueAtTime(0, t + dt); g.gain.linearRampToValueAtTime(0.09, t + dt + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.12);
-      o.connect(g).connect(ac.destination); o.start(t + dt); o.stop(t + dt + 0.13);
-    });
+  tick(freq = 880, vol = 0.09) {
+    const ac = audioCtx(), t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + 0.13);
   },
+  arrow() { sfx.tick(880); setTimeout(() => sfx.tick(1320), 60); },
 };
 
 export function initDryFire(app) {
@@ -60,7 +63,37 @@ export function initDryFire(app) {
   let an = null, stream = null, run = null, lastPose = null;
   const keyHeld = { left: false, right: false };
   const timers = [];
-  const view = { stage: randomStage(Date.now(), { activators: 'never' }), big: 'ARENA EN SECO', sub: 'Pulsa «Empezar»' };
+  const view = { stage: randomStage(Date.now(), { activators: 'never' }), big: 'ARENA EN SECO', sub: 'Elige un entrenamiento y pulsa «Empezar»' };
+
+  // ---------------- selección de entrenamiento ----------------
+  const progSel = $('#dryProgram');
+  function freeProgram() {
+    const d = P();
+    return { free: true, name: 'Arena libre', blocks: [{ type: 'arena', name: 'Arena libre', moves: d.moves, delay: d.delay, activators: d.activators, restAfter: 0 }] };
+  }
+  function fillPrograms(selectId) {
+    const list = store.loadPrograms(), cur = selectId ?? progSel.value;
+    progSel.innerHTML = '<option value="">Arena libre (ajustes de abajo)</option>' + list.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+    progSel.value = list.some((p) => p.id === cur) ? cur : '';
+    describe();
+  }
+  function selectedProgram() {
+    const id = progSel.value;
+    return id ? store.loadPrograms().find((p) => p.id === id) || freeProgram() : freeProgram();
+  }
+  function describe() {
+    const p = selectedProgram();
+    $('#dryArenaSet').classList.toggle('hidden', !p.free);
+    if (p.free) {
+      $('#dryDesc').textContent = 'Aparece el escenario, suena el beep y al segundo se indica arriba hacia dónde moverte. En cuanto te desplazas a ese lado, cambia al siguiente escenario.';
+      $('#dryBlocks').innerHTML = '';
+    } else {
+      $('#dryDesc').textContent = `${p.blocks.length} ${p.blocks.length === 1 ? 'ejercicio' : 'ejercicios'} · duración aproximada ${fmtDuration(programDuration(p))}${p.notes ? ' · ' + p.notes : ''}`;
+      $('#dryBlocks').innerHTML = p.blocks.map((b, i) => `<li><b>${i + 1}. ${esc(b.name)}</b><span>${esc(blockSummary(b))}</span></li>`).join('');
+    }
+  }
+  progSel.onchange = describe;
+  $('#dryEdit').onclick = () => app.openEditor?.(progSel.value || null);
 
   // ---------------- ajustes ----------------
   const binds = { dryCamMode: 'camera', dryMove: 'moveFactor', dryRange: 'range', dryDelay: 'delay', dryMoves: 'moves', dryAct: 'activators', dryVoice: 'voice' };
@@ -71,7 +104,7 @@ export function initDryFire(app) {
   for (const [id, k] of Object.entries(binds)) $(`#${id}`).onchange = (e) => {
     const el = e.target;
     P()[k] = el.type === 'checkbox' ? el.checked : k === 'camera' ? el.value === 'true' : k === 'activators' ? el.value : +el.value;
-    saveProfile();
+    saveProfile(); describe();
   };
 
   // ---------------- teclado (modo sin cámara) ----------------
@@ -88,6 +121,8 @@ export function initDryFire(app) {
     if (!P().voice || !window.speechSynthesis) return;
     try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = 'es-ES'; u.rate = 1.3; speechSynthesis.speak(u); } catch { /* sin voz */ }
   }
+  const startBeep = () => beep({ freq: getProfile().timer?.freq || 2800, dur: 0.3 });
+  const endBeep = () => { beep({ freq: 2200, dur: 0.14 }); timers.push(setTimeout(() => beep({ freq: 2200, dur: 0.14 }), 190)); };
 
   // ---------------- cámara / pose ----------------
   async function ensureCamera() {
@@ -128,40 +163,119 @@ export function initDryFire(app) {
     return { t: performance.now(), x: run.simX, sw: 0.12, sim: true };
   }
 
-  // ---------------- ciclo ----------------
-  async function start() {
+  // ---------------- control ----------------
+  const clearTimers = () => { while (timers.length) clearTimeout(timers.pop()); };
+  const blk = () => run.program.blocks[run.bi];
+  const setPhase = (ph, now = performance.now()) => { run.phase = ph; run.phaseAt = now; };
+
+  async function start(program = selectedProgram()) {
     document.activeElement?.blur();
+    if (!program?.blocks?.length) { toast('Este entrenamiento no tiene ejercicios'); return; }
     audioCtx();
-    if (P().camera && !(await ensureCamera())) return;
+    const needsMove = program.blocks.some((b) => b.type === 'arena' || b.withMove);
+    if (needsMove && P().camera && !(await ensureCamera())) return;
     clearTimers();
-    run = { phase: 'setup', phaseAt: performance.now(), samples: [], simX: 0.5, moves: 0, moveTimes: [], startAt: null, n: 1,
-      stage: randomStage(Date.now(), { activators: P().activators }) };
-    view.transition = null; view.arrow = null; view.warn = null;
+    run = {
+      program, needsMove, phase: 'setup', phaseAt: performance.now(), samples: [], simX: 0.5,
+      bi: 0, rep: 0, moves: 0, totalMoves: 0, repsDone: 0, moveTimes: [], startAt: null, n: 1, lastTick: null,
+    };
+    prepareBlock(performance.now());
+    view.transition = null; view.arrow = null; view.warn = null; view.timer = null; view.dim = 0;
     $('#dryStart').textContent = '↻ Reiniciar';
-    say(P().camera ? 'Colócate en el centro' : 'Preparado');
+    if (needsMove) say(P().camera ? 'Colócate en el centro' : 'Preparado');
   }
   function stop(text) {
     if (!run) return;
     clearTimers(); run.phase = 'done'; run.endAt = performance.now();
-    view.arrow = null; view.transition = null; view.warn = null; view.big = text; view.sub = ''; view.bigColor = '#d4ff3a';
+    Object.assign(view, { arrow: null, transition: null, warn: null, timer: null, dim: 0, big: text, sub: '', bigColor: '#d4ff3a' });
     $('#dryStart').textContent = '▶ Empezar';
   }
-  const clearTimers = () => { while (timers.length) clearTimeout(timers.pop()); };
-  $('#dryStart').onclick = start;
+  $('#dryStart').onclick = () => start();
   $('#dryAbort').onclick = () => stop('DETENIDO');
 
-  const setPhase = (ph, now = performance.now()) => { run.phase = ph; run.phaseAt = now; };
+  function stageForBlock(b, rep) {
+    if (b.layout && (!b.vary || rep === 0)) return stageFromLayout(b.layout);
+    return composeStage(b.comp, (Date.now() + rep * 7919) >>> 0);
+  }
+  // deja listo (y visible) el primer escenario del ejercicio actual
+  function prepareBlock(now) {
+    const b = blk();
+    run.rep = 0; run.moves = 0;
+    if (b.type === 'arena') {
+      run.stage = randomStage(Date.now(), { activators: b.activators, prevTheme: run.stage?.theme ?? -1 });
+      view.stage = run.stage;
+    } else {
+      run.repStage = stageForBlock(b, 0);
+      run.lobby = lobbyStage(run.repStage.theme);
+      view.stage = b.withMove ? run.lobby : run.repStage;
+    }
+  }
 
+  function goStandby(now, next) {
+    run.afterStandby = next;
+    run.standbyUntil = now + 1500 + Math.random() * 1300;
+    Object.assign(view, { big: 'PREPARADO', sub: 'Espera el beep', bigColor: '#d4ff3a', dim: 0 });
+    setPhase('standby', now);
+  }
+
+  function beginBlock(now) {
+    const b = blk();
+    view.big = null; view.sub = null;
+    run.startAt ??= now;
+    if (b.type === 'arena') { startBeep(); startScene(now); }
+    else startRep(now);
+  }
+
+  // ---- ejercicio «recorrido» ----
   function startScene(now) {
-    run.sceneAt = now; run.stage.actStart = null; run.actFired = false;
+    run.sceneAt = now; run.stage.actStart = null; run.stage.actSpeed = 1; run.actFired = false;
     view.stage = run.stage; view.transition = null; view.arrow = null;
     setPhase('scene', now);
   }
 
-  function fireActivation(now) {
-    run.stage.actStart = now; run.actFired = true;
-    timers.push(setTimeout(() => sfx.clang(), ACT.fallStart + ACT.fallDur * 0.7));
-    timers.push(setTimeout(() => sfx.clack(), ACT.moverStart));
+  // ---- ejercicio «escenario con tiempo» ----
+  function startRep(now) {
+    const b = blk();
+    startBeep();
+    run.startAt ??= now;
+    run.beepAt = now; run.actFired = false;
+    run.repStage ??= stageForBlock(b, run.rep);
+    view.big = null; view.sub = null; view.dim = 0;
+    if (b.withMove) { view.stage = run.lobby; setPhase('rep-move', now); showArrow(now, true); }
+    else { view.stage = run.repStage; run.shownAt = now; setPhase('rep-run', now); }
+  }
+  function endRep(now) {
+    const b = blk();
+    endBeep();
+    run.repsDone++;
+    view.timer = null; view.arrow = null; view.transition = null;
+    if (run.rep + 1 < b.reps) {
+      run.rep++;
+      run.repStage = stageForBlock(b, run.rep);
+      run.lobby = lobbyStage(run.repStage.theme);
+      run.restUntil = now + b.rest * 1000; run.lastTick = null;
+      view.stage = b.withMove ? run.lobby : run.repStage;
+      setPhase('rest', now);
+    } else endBlock(now);
+  }
+
+  function endBlock(now) {
+    const prog = run.program;
+    if (run.bi + 1 < prog.blocks.length) {
+      const restAfter = blk().restAfter ?? 10; // descanso tras el ejercicio que acaba de terminar
+      run.bi++;
+      prepareBlock(now);
+      run.betweenUntil = now + Math.max(3, restAfter) * 1000;
+      run.lastTick = null;
+      setPhase('between', now);
+    } else finish(now);
+  }
+
+  function fireActivation(st, now) {
+    st.actStart = now; run.actFired = true;
+    const sp = st.actSpeed || 1;
+    timers.push(setTimeout(() => sfx.clang(), fallAtReal(sp) + (ACT.fallDur * 0.7) / Math.max(1, sp)));
+    timers.push(setTimeout(() => sfx.clack(), moverAtReal(sp)));
   }
 
   function chooseDir(p) {
@@ -174,98 +288,151 @@ export function initDryFire(app) {
     const norm = clamp(off / (Rm === Infinity ? 0.3 : Rm), -1, 1);
     return Math.random() < 0.5 - 0.3 * norm ? 1 : -1;
   }
-
-  function showArrow(now) {
+  function showArrow(now, quiet = false) {
     const p = pose();
     const dir = chooseDir(p);
     run.arrow = { dir, since: now }; run.origin = p ? p.x : null; run.trigSince = null;
     view.arrow = run.arrow;
-    setPhase('arrow', now);
-    sfx.tick(); say(dir < 0 ? 'Izquierda' : 'Derecha');
+    if (!quiet) sfx.arrow();
+    say(dir < 0 ? 'Izquierda' : 'Derecha');
+  }
+  // ¿se ha desplazado ya hacia la flecha?
+  function movedEnough(now, p) {
+    if (!p) return false;
+    const dir = run.arrow.dir;
+    if (run.origin == null) run.origin = p.x;
+    run.origin = dir > 0 ? Math.min(run.origin, p.x) : Math.max(run.origin, p.x);
+    if ((p.x - run.origin) * dir >= run.T) { run.trigSince ??= now; return now - run.trigSince >= 80; }
+    run.trigSince = null; return false;
+  }
+  function sweep(now, from, to, dir) {
+    clearTimers();
+    run.moveTimes.push((now - run.arrow.since) / 1000);
+    view.arrow = null;
+    view.transition = { from, to, dir, start: now, dur: 480 };
+    sfx.whoosh();
+  }
+
+  function countdown(now, until, label) {
+    const left = Math.max(0, until - now), sec = Math.ceil(left / 1000);
+    if (sec !== run.lastTick && sec > 0) { run.lastTick = sec; if (sec <= 3) sfx.tick(sec === 1 ? 1320 : 990, 0.12); }
+    Object.assign(view, { big: sec > 3 ? String(sec) : sec > 0 ? `PREPARADO · ${sec}` : 'PREPARADO', sub: label, bigColor: sec > 3 ? '#d4ff3a' : '#ffc53d', dim: 0.38 });
+    return left <= 0;
+  }
+
+  function info() {
+    const prog = run.program, b = blk();
+    if (prog.free) return run.startAt ? `ESCENARIO ${String(run.n).padStart(2, '0')} · ${THEMES[run.stage.theme].name.toUpperCase()}` : null;
+    let s = `EJ. ${run.bi + 1}/${prog.blocks.length} · ${b.name.toUpperCase()}`;
+    if (b.type === 'stage') s += ` · REP ${run.rep + 1}/${b.reps}`;
+    else if (b.moves) s += ` · ${run.moves}/${b.moves}`;
+    return s;
   }
 
   function step(now) {
-    const p = pose();
+    const p = run.needsMove ? pose() : null;
     if (p) run.lastX = p.x;
     if (!P().camera && run.T) {
       const d = (keyHeld.right ? 1 : 0) - (keyHeld.left ? 1 : 0);
       if (d) run.simX = clamp(run.simX + d * (run.T / 0.45) * Math.min(0.05, (now - (run.lastStep || now)) / 1000), 0, 1);
     }
     run.lastStep = now;
-    view.info = run.startAt ? `ESCENARIO ${String(run.n).padStart(2, '0')} · ${THEMES[run.stage.theme].name.toUpperCase()}` : null;
-    view.warn = P().camera && !p && run.phase !== 'setup' ? 'NO TE VEO' : null;
+    view.info = info();
+    const movePhase = ['scene', 'arrow', 'rep-move'].includes(run.phase);
+    view.warn = run.needsMove && P().camera && !p && movePhase ? 'NO TE VEO' : null;
+    const b = blk();
 
-    if (run.phase === 'setup') {
-      view.stage = run.stage;
-      if (!p) { view.big = 'NO TE VEO'; view.sub = 'Ponte de cuerpo entero frente a la cámara, en el centro'; view.bigColor = '#ff6b6b'; run.samples = []; return; }
-      run.samples.push(p);
-      view.big = 'CALIBRANDO'; view.sub = 'Quieto en el centro…'; view.bigColor = '#d4ff3a';
-      if (run.samples.length >= (p.sim ? 1 : 15)) {
-        run.x0 = run.samples.reduce((a, s) => a + s.x, 0) / run.samples.length;
-        const sw = run.samples.reduce((a, s) => a + s.sw, 0) / run.samples.length;
-        run.T = Math.max(0.035, P().moveFactor * sw);
-        run.standbyUntil = now + 1500 + Math.random() * 1300;
-        view.big = 'PREPARADO'; view.sub = 'Espera el beep';
-        setPhase('standby', now);
+    switch (run.phase) {
+      case 'setup': {
+        if (!run.needsMove) return intro(now);
+        if (!p) { Object.assign(view, { big: 'NO TE VEO', sub: 'Ponte de cuerpo entero frente a la cámara, en el centro', bigColor: '#ff6b6b' }); run.samples = []; return; }
+        run.samples.push(p);
+        Object.assign(view, { big: 'CALIBRANDO', sub: 'Quieto en el centro…', bigColor: '#d4ff3a' });
+        if (run.samples.length >= (p.sim ? 1 : 15)) {
+          run.x0 = run.samples.reduce((a, s) => a + s.x, 0) / run.samples.length;
+          const sw = run.samples.reduce((a, s) => a + s.sw, 0) / run.samples.length;
+          run.T = Math.max(0.035, P().moveFactor * sw);
+          intro(now);
+        }
+        return;
       }
-      return;
-    }
-    if (run.phase === 'standby') {
-      if (now >= run.standbyUntil) {
-        beep({ freq: getProfile().timer?.freq || 2800, dur: 0.3 });
-        run.startAt = now; view.big = null; view.sub = null;
-        startScene(now);
+      case 'intro':
+        if (now >= run.introUntil) goStandby(now, 'block');
+        return;
+      case 'standby':
+        if (now >= run.standbyUntil) { if (run.afterStandby === 'rep') { view.big = null; startRep(now); } else beginBlock(now); }
+        return;
+
+      // ---------- recorrido ----------
+      case 'scene':
+        if (run.stage.act && !run.actFired && now >= run.sceneAt + b.delay * 1000) fireActivation(run.stage, now);
+        if (now >= run.sceneAt + b.delay * 1000) { showArrow(now); setPhase('arrow', now); }
+        return;
+      case 'arrow':
+        if (movedEnough(now, p)) {
+          run.next = randomStage(Date.now(), { activators: b.activators, prevTheme: run.stage.theme });
+          sweep(now, run.stage, run.next, run.arrow.dir);
+          setPhase('transition', now);
+        }
+        return;
+      case 'transition':
+        if (now - view.transition.start >= view.transition.dur) {
+          run.stage = run.next; run.next = null; run.moves++; run.totalMoves++; run.n++;
+          if (b.moves && run.moves >= b.moves) { view.stage = run.stage; view.transition = null; endBeep(); endBlock(now); return; }
+          startScene(now);
+        }
+        return;
+
+      // ---------- escenario con tiempo ----------
+      case 'rep-move':
+      case 'rep-trans':
+      case 'rep-run': {
+        const elapsed = now - run.beepAt;
+        view.timer = { elapsed: elapsed / 1000, par: b.par };
+        if (run.phase === 'rep-move' && movedEnough(now, p)) { sweep(now, run.lobby, run.repStage, run.arrow.dir); setPhase('rep-trans', now); }
+        else if (run.phase === 'rep-trans' && now - view.transition.start >= view.transition.dur) {
+          view.transition = null; view.stage = run.repStage; run.shownAt = now; run.totalMoves++; setPhase('rep-run', now);
+        } else if (run.phase === 'rep-run') {
+          const st = run.repStage;
+          if (st.act && !run.actFired) {
+            const atMs = b.activatorAt * 1000;
+            const sp = atMs < ACT.fallStart ? ACT.fallStart / Math.max(300, atMs) : 1;
+            if (now >= run.shownAt + Math.max(0, atMs - ACT.fallStart)) { st.actSpeed = sp; fireActivation(st, now); }
+          }
+        }
+        if (elapsed >= b.par * 1000) endRep(now);
+        return;
       }
-      return;
-    }
-    if (run.phase === 'scene') {
-      // la dirección aparece siempre al mismo tiempo, haya o no móvil (no se espera a que termine)
-      if (now >= run.sceneAt + P().delay * 1000) {
-        if (run.stage.act && !run.actFired) fireActivation(now);
-        showArrow(now);
-      }
-      return;
-    }
-    if (run.phase === 'arrow') {
-      if (!p) return;
-      const dir = run.arrow.dir;
-      if (run.origin == null) run.origin = p.x;
-      // el origen es el punto más alejado en sentido contrario (por si retrocedes antes de salir)
-      run.origin = dir > 0 ? Math.min(run.origin, p.x) : Math.max(run.origin, p.x);
-      const disp = (p.x - run.origin) * dir;
-      if (disp >= run.T) {
-        run.trigSince ??= now;
-        if (now - run.trigSince >= 80) trigger(now, dir);
-      } else run.trigSince = null;
-      return;
-    }
-    if (run.phase === 'transition') {
-      if (now - view.transition.start >= view.transition.dur) {
-        run.stage = run.next; run.next = null; run.moves++; run.n++;
-        if (P().moves && run.moves >= P().moves) return finish(now);
-        startScene(now);
-      }
+      case 'rest':
+        if (countdown(now, run.restUntil, `DESCANSO · siguiente: repetición ${run.rep + 1} de ${b.reps}`)) {
+          view.dim = 0;
+          if (b.startMode === 'random') goStandby(now, 'rep'); else startRep(now);
+        }
+        return;
+      case 'between':
+        if (countdown(now, run.betweenUntil, `SIGUIENTE: ${b.name} · ${blockSummary(b)}`)) goStandby(now, 'block');
+        return;
     }
   }
 
-  function trigger(now, dir) {
-    clearTimers(); // si te vas antes de que caiga el popper, no suenan efectos del escenario anterior
-    run.moveTimes.push((now - run.arrow.since) / 1000);
-    run.next = randomStage(Date.now(), { activators: P().activators, prevTheme: run.stage.theme });
-    view.arrow = null;
-    view.transition = { from: run.stage, to: run.next, dir, start: now, dur: 480 };
-    setPhase('transition', now);
-    sfx.whoosh();
+  function intro(now) {
+    if (run.program.free) return goStandby(now, 'block');
+    const b = blk();
+    Object.assign(view, { big: run.program.name, sub: `Ejercicio 1 de ${run.program.blocks.length}: ${b.name} · ${blockSummary(b)}`, bigColor: '#d4ff3a' });
+    run.introUntil = now + 2800;
+    setPhase('intro', now);
   }
 
   function finish(now) {
-    view.stage = run.stage; view.transition = null; view.arrow = null;
-    const total = (now - run.startAt) / 1000;
-    const avg = run.moveTimes.reduce((a, b) => a + b, 0) / Math.max(1, run.moveTimes.length);
     run.phase = 'done'; run.endAt = now;
-    view.big = 'COMPLETADO'; view.bigColor = '#d4ff3a';
-    view.sub = `${run.moves} desplazamientos · ${total.toFixed(1)} s · reacción media ${avg.toFixed(2)} s`;
-    beep({ freq: 2200, dur: 0.15 }); timers.push(setTimeout(() => beep({ freq: 2200, dur: 0.15 }), 220));
+    const total = (now - (run.startAt ?? now)) / 1000;
+    const parts = [];
+    if (!run.program.free) parts.push(`${run.program.blocks.length} ${run.program.blocks.length === 1 ? 'ejercicio' : 'ejercicios'}`);
+    if (run.repsDone) parts.push(`${run.repsDone} repeticiones`);
+    if (run.totalMoves) parts.push(`${run.totalMoves} desplazamientos`);
+    parts.push(`${total.toFixed(1)} s`);
+    if (run.moveTimes.length) parts.push(`reacción media ${(run.moveTimes.reduce((a, b) => a + b, 0) / run.moveTimes.length).toFixed(2)} s`);
+    Object.assign(view, { arrow: null, timer: null, dim: 0, big: run.program.free ? 'COMPLETADO' : 'ENTRENAMIENTO COMPLETADO', bigColor: '#d4ff3a', sub: parts.join(' · ') });
     say('Completado');
     $('#dryStart').textContent = '▶ Empezar';
   }
@@ -273,9 +440,19 @@ export function initDryFire(app) {
   let hudT = 0;
   function updateHud(now) {
     if (now - hudT < 100) return; hudT = now;
-    const moves = run?.moves ?? 0, goal = P().moves;
     const time = run?.startAt ? ((run.phase === 'done' ? run.endAt : now) - run.startAt) / 1000 : 0;
-    $('#dryHud').innerHTML = `<div><span>DESPLAZAMIENTOS</span><b>${moves}${goal ? ` / ${goal}` : ''}</b></div><div><span>TIEMPO</span><b>${time.toFixed(1)} s</b></div>`;
+    const cell = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+    let html;
+    if (!run || run.program.free) {
+      const goal = P().moves;
+      html = cell('DESPLAZAMIENTOS', `${run?.moves ?? 0}${goal ? ` / ${goal}` : ''}`) + cell('TIEMPO', `${time.toFixed(1)} s`);
+    } else {
+      const b = blk(), n = run.program.blocks.length;
+      html = cell('EJERCICIO', `${run.bi + 1} / ${n}`)
+        + (b.type === 'stage' ? cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`) : cell('DESPLAZAMIENTOS', `${run.moves}${b.moves ? ` / ${b.moves}` : ''}`))
+        + cell('TIEMPO TOTAL', `${time.toFixed(1)} s`);
+    }
+    const hud = $('#dryHud'); hud.innerHTML = html; hud.dataset.cols = (html.match(/<div>/g) || []).length;
   }
 
   function tick(now) {
@@ -286,10 +463,12 @@ export function initDryFire(app) {
     updateHud(now);
   }
 
-  loadSettings();
+  loadSettings(); fillPrograms('');
   requestAnimationFrame(tick);
   return {
-    onShow: () => { loadSettings(); scene.checkSize(); },
+    onShow: () => { loadSettings(); fillPrograms(); scene.checkSize(); },
+    // arranca un entrenamiento concreto (desde el Editor)
+    startProgram: (program, selectId) => { fillPrograms(selectId ?? ''); start(program); },
     debug: () => ({ run, lastPose, view }),
     // avance manual de un fotograma (pruebas con la pestaña en segundo plano)
     stepOnce: (now = performance.now()) => { if (run && run.phase !== 'done') step(now); scene.render(view, now); hudT = 0; updateHud(now); },

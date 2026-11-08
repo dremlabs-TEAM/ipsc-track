@@ -1,10 +1,12 @@
-import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261108-2153';
-import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261108-2153';
-import * as store from './storage.js?v=20261108-2153';
-import { ShotTimer, beep, audioCtx } from './timer.js?v=20261108-2153';
-import { lineChart } from './charts.js?v=20261108-2153';
-import { initDryFire } from './dryfire.js?v=20261108-2153';
-import { VERSION } from './version.js?v=20261108-2153';
+import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261108-2225';
+import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261108-2225';
+import * as store from './storage.js?v=20261108-2225';
+import { ShotTimer, beep, audioCtx } from './timer.js?v=20261108-2225';
+import { lineChart } from './charts.js?v=20261108-2225';
+import { initDryFire } from './dryfire.js?v=20261108-2225';
+import { initEditor } from './editor.js?v=20261108-2225';
+import { programFromHash } from './program.js?v=20261108-2225';
+import { VERSION } from './version.js?v=20261108-2225';
 
 // ---------------- utilidades ----------------
 const $ = (s, r = document) => r.querySelector(s);
@@ -519,9 +521,22 @@ $('#pResetRefs').onclick = () => {
 tabHooks.profile = renderProfile;
 
 // ================= ENTRENAMIENTO EN SECO =================
-const dry = initDryFire({ toast, ask, renderCards, renderOverall, tipsHTML, getProfile, saveProfile });
+const showTab = (name) => $(`#tabs button[data-tab="${name}"]`).click();
+const dry = initDryFire({
+  toast, ask, renderCards, renderOverall, tipsHTML, getProfile, saveProfile,
+  openEditor: (id) => { showTab('editor'); if (id) editor.open(id); },
+});
 tabHooks.dry = dry.onShow;
 window.ipscTrack.dry = dry;
+
+// ================= EDITOR DE ENTRENAMIENTOS =================
+const editor = initEditor({
+  toast, ask,
+  // entrena un programa: pasa a «En seco» y arranca
+  startProgram: (program, selectId) => { showTab('dry'); dry.startProgram(program, selectId); },
+});
+tabHooks.editor = editor.onShow;
+window.ipscTrack.editor = editor;
 
 // ================= ACTUALIZACIONES =================
 // Al abrir la app (y al volver a la pestaña) se consulta version.json sin caché. Si hay una versión
@@ -555,8 +570,8 @@ renderAll();
 navigator.mediaDevices?.enumerateDevices && listCams().catch(() => {});
 window.addEventListener('resize', () => $('#tab-history').classList.contains('active') && renderHistory());
 
-if (!localStorage.getItem('ipsctrack.profile')) {
-  (async () => {
+async function welcome() {
+  {
     const r = await ask({
       title: 'Bienvenido a IPSC Track 🎯',
       html: '<p class="muted">Personaliza la app para ti. Puedes cambiarlo todo después en «Perfil».</p>',
@@ -573,5 +588,26 @@ if (!localStorage.getItem('ipsctrack.profile')) {
     Object.assign(profile, r, { refs: { ...STYLE_DEFAULTS[r.style] } });
     saveProfile(); renderAll();
     toast('Perfil creado. Siguiente paso: calibra tu postura en «Cámara» 🎯', 4500);
-  })();
+  }
 }
+
+// Entrenamiento recibido por enlace (#prog=...): se ofrece importarlo
+async function importSharedFromLink() {
+  const shared = programFromHash(location.hash);
+  if (!shared) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  const r = await ask({
+    title: 'Entrenamiento compartido',
+    html: `<p>Te han enviado <b>${esc(shared.name)}</b> (${shared.blocks.length} ${shared.blocks.length === 1 ? 'ejercicio' : 'ejercicios'}).</p><p class="muted small">Se guardará en tus entrenamientos de este navegador.</p>`,
+    ok: 'Importar', cancel: 'Ahora no',
+  });
+  if (!r) return;
+  const id = editor.importShared(shared);
+  showTab('editor'); editor.open(id);
+  toast('Entrenamiento importado ✔');
+}
+
+(async () => {
+  if (!localStorage.getItem('ipsctrack.profile')) await welcome();
+  await importSharedFromLink();
+})();

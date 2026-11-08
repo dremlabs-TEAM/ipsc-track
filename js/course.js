@@ -100,3 +100,132 @@ export function randomStage(seed = Date.now(), opts = {}) {
   const sorted = [...items].sort((a, b) => b.d - a.d);
   return { seed, theme, items, sorted, act, popper, mover, actStart: null };
 }
+
+// =====================================================================================
+// Escenarios a medida (editor de entrenamientos)
+// =====================================================================================
+export const DIST_RANGES = { close: [6.2, 9], mid: [7, 13], far: [10, 18], mixed: [6.5, 15] };
+const ITEM_TYPES = new Set(['paper', 'popper', 'plate', 'wall', 'barrel', 'tires', 'cone', 'mover']);
+
+// Completa un escenario: orden de dibujo y referencias al popper activador y al móvil.
+export function finalizeStage(st) {
+  st.sorted = [...st.items].sort((a, b) => b.d - a.d);
+  st.popper = st.items.find((i) => i.type === 'popper' && i.activator) || null;
+  st.mover = st.items.find((i) => i.type === 'mover') || null;
+  st.act = st.popper && st.mover ? { type: st.mover.mtype } : null;
+  st.actStart = null; st.actSpeed = 1;
+  return st;
+}
+// Disposición guardable (sin datos de render)
+export function layoutOf(stage) {
+  return { seed: stage.seed, theme: stage.theme, items: stage.items.map(({ _screen, ...i }) => ({ ...i })) };
+}
+export function stageFromLayout(layout) {
+  const items = (layout.items || [])
+    .filter((i) => i && ITEM_TYPES.has(i.type) && Number.isFinite(i.x) && Number.isFinite(i.d))
+    .map((i) => ({ ...i, d: Math.min(25, Math.max(5.5, i.d)), x: Math.min(1.6, Math.max(-1.6, i.x)) }));
+  return finalizeStage({ seed: layout.seed || 1, theme: Math.min(THEME_COUNT - 1, Math.max(0, layout.theme | 0)), items });
+}
+
+// Crea un escenario con la composición pedida (cantidades) colocada automáticamente.
+export function composeStage(comp = {}, seed = Date.now()) {
+  const c = { paper: 2, ns: 0, hard: 0, poppers: 3, popSize: 'full', plates: 0, mover: 'none', dist: 'mixed', theme: -1, props: true, ...comp };
+  const r = rng(seed);
+  const pick = (a) => a[Math.floor(r() * a.length)];
+  const rand = (a, b) => a + r() * (b - a);
+  const [dMin, dMax] = DIST_RANGES[c.dist] || DIST_RANGES.mixed;
+  const theme = c.theme >= 0 ? c.theme : Math.floor(r() * THEME_COUNT);
+  const items = [], occ = [], LIM = 0.97, GAP = 0.025;
+  let missing = 0;
+  const free = (a, b) => occ.every(([s, e]) => b + GAP < s || a - GAP > e);
+  // intenta colocar; si no cabe, lo aleja (más lejos ocupa menos ancho en pantalla)
+  function place(item, widthM, range = [-LIM, LIM], { required = true, maxD = 19 } = {}) {
+    for (let round = 0; round < 5; round++) {
+      const hw = normHalf(widthM, item.d);
+      const lo = Math.max(range[0], -LIM + hw), hi = Math.min(range[1], LIM - hw);
+      if (hi >= lo) {
+        for (let i = 0; i < 60; i++) {
+          const x = rand(lo, hi);
+          if (free(x - hw, x + hw)) { item.x = x; occ.push([x - hw, x + hw]); items.push(item); return true; }
+        }
+      }
+      if (item.d >= maxD) break;
+      item.d = Math.min(maxD, item.d + 2.2);
+    }
+    if (required) missing++;
+    return false;
+  }
+  const seedOf = () => Math.floor(r() * 1e9);
+  const pasters = () => Array.from({ length: Math.floor(r() * 4) }, () => ({ u: rand(8, 37), v: rand(6, 50), r: rand(-0.3, 0.3) }));
+  const mini = () => c.popSize === 'mini' || (c.popSize === 'mixed' && r() < 0.5);
+
+  // --- elementos principales: se reparten en fila (izquierda → derecha) con huecos aleatorios.
+  // Si no caben, se alejan primero los más cercanos (de lejos ocupan menos ancho en pantalla).
+  const row = [];
+  let mover = null, activator = null;
+  let nPoppers = c.poppers;
+  if (c.mover && c.mover !== 'none') {
+    const mtype = c.mover === 'random' ? pick(MOVER_TYPES) : c.mover;
+    mover = { item: { type: 'mover', mtype, d: mtype === 'bobber' ? rand(9, 11) : rand(10.5, 12.5), style: pick(WALL_STYLES), seed: seedOf(), dir: r() < 0.5 ? -1 : 1 }, w: MOVER_W[mtype], maxD: 15 };
+    activator = { item: { type: 'popper', d: rand(Math.max(6.5, dMin), Math.min(11, dMax)), mini: mini(), activator: true, seed: seedOf() }, w: 0.5, maxD: 14 };
+    nPoppers = Math.max(0, nPoppers - 1);
+  }
+  for (let i = 0; i < nPoppers; i++) row.push({ item: { type: 'popper', d: rand(dMin, dMax), mini: mini(), activator: false, seed: seedOf() }, w: 0.5, maxD: 19 });
+  for (let i = 0; i < c.plates; i++) row.push({ item: { type: 'plate', d: rand(dMin, dMax), seed: seedOf() }, w: 0.35, maxD: 19 });
+  // tarjetas: reparte no-shoots y coberturas entre ellas
+  const idx = Array.from({ length: c.paper }, (_, i) => i).sort(() => r() - 0.5);
+  const nsSet = new Set(idx.slice(0, Math.min(c.ns, c.paper)));
+  const hardSet = new Set(idx.slice(c.paper - Math.min(c.hard, c.paper)));
+  for (let i = 0; i < c.paper; i++) {
+    const ns = nsSet.has(i) ? { side: r() < 0.5 ? -1 : 1 } : null;
+    const hard = hardSet.has(i) ? { side: r() < 0.5 ? -1 : 1, frac: rand(0.28, 0.5) } : null;
+    row.push({ item: { type: 'paper', d: rand(dMin, dMax), mini: false, ns, hard, pasters: pasters(), seed: seedOf() }, w: 0.5 + (ns ? 0.26 : 0), maxD: 19 });
+  }
+  row.sort(() => r() - 0.5);
+  if (mover) {
+    // el móvil en una mitad y su popper activador en la otra
+    const n = row.length, mi = Math.floor(r() * (n + 1));
+    row.splice(mi, 0, mover);
+    const ai = mi <= n / 2 ? Math.floor(rand(Math.ceil((n + 1) * 0.6), n + 2)) : Math.floor(rand(0, Math.max(1, Math.floor((n + 1) * 0.4))));
+    row.splice(Math.min(ai, row.length), 0, activator);
+  }
+  const span = 2 * LIM, gapMin = 0.03;
+  const widthOf = () => row.reduce((t, e) => t + 2 * normHalf(e.w, e.item.d), 0) + gapMin * Math.max(0, row.length - 1);
+  for (let guard = 0; guard < 400 && widthOf() > span; guard++) {
+    const near = row.filter((e) => e.item.d < e.maxD).sort((a, b) => 2 * normHalf(b.w, b.item.d) - 2 * normHalf(a.w, a.item.d))[0];
+    if (!near) break;
+    near.item.d = Math.min(near.maxD, near.item.d + 0.6);
+  }
+  while (row.length && widthOf() > span) {
+    // no caben ni alejándolos: se descarta el último (el activador y el móvil se descartan juntos)
+    const e = row.pop(); missing++;
+    if (e === mover || e === activator) { const o = e === mover ? activator : mover; const k = row.indexOf(o); if (k >= 0) { row.splice(k, 1); missing++; } mover = activator = null; }
+  }
+  const extra = Math.max(0, span - widthOf()), weights = Array.from({ length: row.length + 1 }, () => 0.4 + r());
+  const wsum = weights.reduce((a, b) => a + b, 0);
+  let cursor = -LIM + (extra * weights[0]) / wsum;
+  row.forEach((e, i) => {
+    const hw = normHalf(e.w, e.item.d);
+    e.item.x = cursor + hw; items.push(e.item); occ.push([cursor, cursor + 2 * hw]);
+    cursor += 2 * hw + gapMin + (extra * weights[i + 1]) / wsum;
+  });
+  if (mover) mover.item.side = mover.item.x <= 0 ? 1 : -1;
+  // atrezo (solo donde quede hueco)
+  if (c.props) {
+    for (let i = 0, n = Math.floor(r() * 3); i < n; i++) place({ type: 'barrel', d: rand(7, 14), color: pick(BARREL_COLORS), seed: seedOf() }, 0.62, undefined, { required: false, maxD: 15 });
+    if (r() < 0.3) place({ type: 'tires', d: rand(7, 12), n: 2 + Math.floor(r() * 2) }, 0.7, undefined, { required: false, maxD: 13 });
+    if (r() < 0.5) place({ type: 'wall', d: rand(16, 19), w: rand(1.2, 2.2), h: 2, style: pick(WALL_STYLES), seed: seedOf() }, 2.2, undefined, { required: false, maxD: 20 });
+    for (const side of [-1, 1]) {
+      if (r() < 0.5) items.push({ type: 'wall', x: side * rand(1.32, 1.5), d: rand(7.5, 9.5), w: rand(1.2, 1.6), h: 2.1, style: pick(WALL_STYLES), seed: seedOf() });
+      else if (r() < 0.4) items.push({ type: 'barrel', x: side * rand(1.08, 1.2), d: rand(7, 9), color: pick(BARREL_COLORS), seed: seedOf() });
+    }
+  }
+  const st = finalizeStage({ seed, theme, items });
+  st.missing = missing;
+  return st;
+}
+
+// Escenario «de paso» (sin blancos) para mostrar mientras te desplazas a la posición
+export function lobbyStage(theme = 0, seed = Date.now()) {
+  return composeStage({ paper: 0, poppers: 0, plates: 0, mover: 'none', theme, props: true }, seed);
+}

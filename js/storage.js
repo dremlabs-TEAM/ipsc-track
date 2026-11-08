@@ -1,7 +1,7 @@
 // Persistencia local (localStorage) de perfil, sesiones y tiempos del timer.
-import { STYLE_DEFAULTS, DEFAULT_TOLS } from './metrics.js?v=20261108-2153';
+import { STYLE_DEFAULTS, DEFAULT_TOLS } from './metrics.js?v=20261108-2225';
 
-const K = { profile: 'ipsctrack.profile', sessions: 'ipsctrack.sessions', timer: 'ipsctrack.timer' };
+const K = { profile: 'ipsctrack.profile', sessions: 'ipsctrack.sessions', timer: 'ipsctrack.timer', programs: 'ipsctrack.programs' };
 
 function read(key, fallback) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
@@ -41,8 +41,18 @@ export const loadTimerRuns = () => read(K.timer, []);
 export function addTimerRun(r) { const all = loadTimerRuns(); all.unshift(r); write(K.timer, all.slice(0, 300)); }
 export function deleteTimerRun(id) { write(K.timer, loadTimerRuns().filter((r) => r.id !== id)); }
 
+// --- entrenamientos personalizados (editor) ---
+export const loadPrograms = () => read(K.programs, []);
+export function saveProgram(p) {
+  const all = loadPrograms(); const i = all.findIndex((x) => x.id === p.id);
+  p.updated = Date.now();
+  if (i >= 0) all[i] = p; else all.unshift(p);
+  return write(K.programs, all);
+}
+export function deleteProgram(id) { write(K.programs, loadPrograms().filter((p) => p.id !== id)); }
+
 export function exportAll() {
-  const data = { app: 'ipsc-track', version: 1, exported: new Date().toISOString(), profile: loadProfile(), sessions: loadSessions(), timer: loadTimerRuns() };
+  const data = { app: 'ipsc-track', version: 1, exported: new Date().toISOString(), profile: loadProfile(), sessions: loadSessions(), timer: loadTimerRuns(), programs: loadPrograms() };
   const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = `ipsc-track-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click();
@@ -57,6 +67,8 @@ export async function importAll(file) {
   write(K.sessions, [...loadSessions(), ...(data.sessions || []).filter((s) => !ids.has(s.id))].sort((a, b) => b.date - a.date));
   const tids = new Set(loadTimerRuns().map((s) => s.id));
   write(K.timer, [...loadTimerRuns(), ...(data.timer || []).filter((s) => !tids.has(s.id))].sort((a, b) => b.date - a.date));
+  const pids = new Set(loadPrograms().map((p) => p.id));
+  write(K.programs, [...loadPrograms(), ...(data.programs || []).filter((p) => p && Array.isArray(p.blocks) && !pids.has(p.id))]);
 }
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
