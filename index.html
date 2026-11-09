@@ -18,16 +18,17 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/styles.css?v=20261109-1754">
+<link rel="stylesheet" href="css/styles.css?v=20261109-2144">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">
+  <div class="brand" id="brandHome" role="button" tabindex="0" title="Ir a Inicio">
     <img src="icon.svg" alt="" class="logo">
     <div><b>IPSC TRACK</b><small id="hello">Configura tu perfil</small></div>
   </div>
   <nav id="tabs">
-    <button data-tab="dry" class="active">En seco</button>
+    <button data-tab="home" class="active">Inicio</button>
+    <button data-tab="dry">En seco</button>
     <button data-tab="editor">Editor</button>
     <button data-tab="live">Cámara</button>
     <button data-tab="video">Vídeo</button>
@@ -46,6 +47,212 @@
 <div id="modelLoading" class="loading hidden"><span class="spinner"></span> Cargando modelo de IA…</div>
 
 <main>
+<!-- ============ INICIO ============ -->
+<section id="tab-home" class="tab active">
+  <div class="home-hero">
+    <div class="home-hero-txt">
+      <span class="home-kicker">Tiro práctico · IPSC</span>
+      <h1>Entrena como en la competición, desde casa</h1>
+      <p>Escenarios dinámicos para entrenar en seco que cambian cuando te desplazas, análisis de tu postura con IA y shot timer. Todo funciona en tu navegador: nada sale de tu dispositivo.</p>
+      <div class="home-cta">
+        <button class="btn primary big" data-goto="#homeModes">▶ Empezar a entrenar</button>
+        <button class="btn big home-ghost" data-goto="#homeManual">📖 Manual de uso</button>
+      </div>
+      <ul class="home-points">
+        <li><b>Escenarios reales</b> tarjetas IPSC, poppers, platos, móviles y muros</li>
+        <li><b>Detección de movimiento</b> la cámara sabe cuándo te desplazas o te agachas</li>
+        <li><b>Para tu equipo</b> crea entrenamientos y compártelos con un enlace</li>
+      </ul>
+    </div>
+    <div class="home-hero-vis">
+      <canvas id="homeScene"></canvas>
+      <span class="home-live">● Vista previa</span>
+    </div>
+  </div>
+
+  <section class="home-block" id="homeModes">
+    <div class="home-h"><span class="home-step">1</span><div><h2>¿Qué quieres hacer?</h2><p class="muted">Elige un modo. «Entrenamiento en seco» abre el selector de entrenamientos.</p></div></div>
+    <div class="mode-grid">
+      <button class="mode-card main" data-mode="dry" aria-expanded="false">
+        <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span>
+        <b>Entrenamiento en seco</b>
+        <small>Escenarios que cambian al desplazarte, con beep, tiempos y repeticiones.</small>
+        <span class="mode-more">Elegir entrenamiento <i>→</i></span>
+      </button>
+      <button class="mode-card" data-mode="editor">
+        <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg></span>
+        <b>Crear entrenamientos</b>
+        <small>Diseña ejercicios, escenarios y desplazamientos en el Editor.</small>
+      </button>
+      <button class="mode-card" data-mode="live">
+        <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 7h3l1.6-2h6.8L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.6"/></svg></span>
+        <b>Análisis de postura</b>
+        <small>La cámara analiza tu guardia en directo y la compara con tu referencia.</small>
+      </button>
+      <button class="mode-card" data-mode="video">
+        <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.5v5l4.5-2.5z"/></svg></span>
+        <b>Analizar un vídeo</b>
+        <small>Sube un vídeo tuyo y compáralo con otro tirador o contigo mismo.</small>
+      </button>
+      <button class="mode-card" data-mode="timer">
+        <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M10 2.5h4M18.5 6.5l1.5-1.5"/></svg></span>
+        <b>Shot timer</b>
+        <small>Beep de salida y detección de disparos por el micrófono.</small>
+      </button>
+      <button class="mode-card" data-mode="history">
+        <span class="mode-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16"/><path d="M7 15l4-4 3 3 5-6"/></svg></span>
+        <b>Historial y progreso</b>
+        <small>Tus sesiones guardadas, gráficas y comparaciones.</small>
+      </button>
+    </div>
+
+  </section>
+
+  <section class="home-block" id="homeManual">
+    <div class="home-h"><span class="home-step">?</span><div><h2>Manual de uso</h2><p class="muted">Todo lo que necesitas para usar la app. Toca cada apartado para desplegarlo.</p></div></div>
+    <div class="man">
+      <details class="man-item" open>
+        <summary><span class="man-n">1</span><span><b>Antes de empezar</b><small>Seguridad, perfil y espacio</small></span></summary>
+        <div class="man-body">
+          <div class="man-warn">⚠ Entrenamiento en seco: <b>arma descargada, cargadores vacíos y sin munición en la sala</b>. Comprueba siempre dos veces.</div>
+          <ol>
+            <li>La primera vez la app te pide tu <b>perfil</b> (nombre, división, mano y ojo dominante). Puedes cambiarlo cuando quieras en «Perfil».</li>
+            <li>Necesitas un espacio con <b>sitio libre a ambos lados</b> para desplazarte (al menos un paso grande a cada lado).</li>
+            <li>Todo se guarda <b>en este navegador</b>. Si cambias de móvil u ordenador, exporta tus entrenamientos desde el Editor (⋯ → Exportar) o compártelos con un enlace.</li>
+          </ol>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">2</span><span><b>Colocar la cámara</b><small>Dónde ponerla para que te detecte bien</small></span></summary>
+        <div class="man-body man-2col">
+          <ol>
+            <li>Usa la webcam del ordenador, el móvil, o el móvil como webcam del PC.</li>
+            <li>Ponla a <b>3–4 m</b>, a la <b>altura del pecho</b>, apuntando de frente.</li>
+            <li>Tienes que salir de <b>cuerpo entero</b> (cabeza a rodillas como mínimo) también cuando te desplazas o te agachas.</li>
+            <li>Al pulsar «Empezar», quédate quieto en el centro un momento: la app te calibra.</li>
+            <li>Si te dice <b>«NO TE VEO»</b>, aléjate un poco o mejora la luz.</li>
+            <li><b>Sin cámara</b>: en «Ajustes → Seguimiento» elige «Sin cámara» y usa las flechas ← → del teclado (↓ para agacharte), o pon los cambios en «Automático».</li>
+          </ol>
+          <svg class="man-fig" viewBox="0 0 260 150" aria-label="Esquema: cámara a 3 o 4 metros del tirador">
+            <rect x="0" y="118" width="260" height="2" fill="#2a313a"/>
+            <g stroke="#d4ff3a" stroke-width="2" fill="none" stroke-linecap="round"><circle cx="205" cy="38" r="9"/><path d="M205 47v38M205 85l-12 32M205 85l12 32M205 58l-22 6M205 58l20 8"/></g>
+            <g fill="#8b97a6"><rect x="22" y="58" width="22" height="16" rx="3"/><circle cx="33" cy="66" r="4" fill="#0b0d10"/><path d="M31 74h4l3 44h-10z"/></g>
+            <path d="M48 66 L190 50 M48 66 L190 110" stroke="#5fd3ff" stroke-dasharray="4 4" stroke-width="1.2"/>
+            <path d="M40 135h160" stroke="#8b97a6" stroke-width="1.2" marker-start="url(#ar)" marker-end="url(#ar)"/>
+            <defs><marker id="ar" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#8b97a6"/></marker></defs>
+            <text x="120" y="148" fill="#e8edf2" font-size="11" text-anchor="middle" font-family="Inter, sans-serif">3 – 4 m</text>
+            <text x="33" y="50" fill="#8b97a6" font-size="10" text-anchor="middle" font-family="Inter, sans-serif">altura del pecho</text>
+          </svg>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">3</span><span><b>Entrenamiento rápido: varios escenarios</b><small>Desplazamientos y escenarios aleatorios, sin preparar nada</small></span></summary>
+        <div class="man-body">
+          <ol>
+            <li>En Inicio pulsa <b>«Entrenamiento en seco» → «Varios escenarios con desplazamientos»</b> (o en «En seco» elige «Entrenamiento rápido» y el estilo en los Ajustes).</li>
+            <li>Pulsa <b>«▶ Empezar»</b>. Sale el escenario y suena el <b>beep</b>: resuélvelo en seco.</li>
+            <li>Al poco aparece arriba una <b>flecha</b> (izquierda o derecha): desplázate hacia ese lado y una malla verde trae el siguiente escenario.</li>
+            <li>Algunos escenarios empiezan tras un <b>muro con ventana</b>: agáchate y la ventana se acerca hasta enmarcar el escenario.</li>
+            <li>Si un popper brilla con una onda, es el <b>activador</b>: al caer pone en marcha el móvil.</li>
+            <li>En los <b>Ajustes</b> eliges «Cámara activa» (detecta tus desplazamientos y cuando te agachas) o «Automático» (sin cámara, con los tiempos que indiques), si hay muros, cuánto tarda la flecha y cuántos desplazamientos.</li>
+          </ol>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">4</span><span><b>Entrenamiento rápido: retos</b><small>Repetir mismo escenario con condiciones y dificultad adaptativa</small></span></summary>
+        <div class="man-body">
+          <p>Sin desplazamientos: el <b>mismo escenario</b> se repite en varias <b>rondas</b>. Cada ronda tiene sus <b>condiciones</b> y un <b>tiempo límite</b>; por ejemplo: 5 repeticiones con mano débil en 10 s, luego con mano fuerte, luego mano débil en 7 s.</p>
+          <ol>
+            <li>En Inicio pulsa <b>«Entrenamiento en seco» → «Repetir mismo escenario»</b> y elige un <b>reto</b> en los Ajustes: mano débil progresiva, recarga bajo presión, desde arma descargada, salidas exigentes, reto de competición… o el <b>reto aleatorio progresivo</b>.</li>
+            <li>Antes de cada ronda verás sus condiciones (también abajo en pantalla): <b>mano</b>, <b>posición de salida</b> (manos arriba, arma en la mesa, de espaldas, sentado…) y si hay <b>cambio de cargador obligatorio</b>.</li>
+            <li>Cada repetición: «PREPARADO», beep aleatorio, tiempo límite con barra arriba y beep final. Entre repeticiones hay un descanso corto.</li>
+            <li>Al terminar cada ronda, indica <b>qué tal te ha ido</b> (Muy fácil · Bien, justo · Difícil · No llegué) tocando la pantalla o con las teclas 1–4. La app <b>ajusta el nivel</b> (el tiempo) de la siguiente ronda.</li>
+            <li>Hay 10 <b>niveles</b>, de Iniciación a Élite. Empiezas fácil; la app recuerda tu nivel y tu <b>mejor marca</b> en cada reto para la próxima vez.</li>
+          </ol>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">5</span><span><b>Crear tus entrenamientos</b><small>Entrenamientos, ejercicios y escenarios en el Editor</small></span></summary>
+        <div class="man-body">
+          <p>Un <b>entrenamiento</b> es un conjunto de <b>ejercicios</b> que se hacen seguidos. Cada ejercicio tiene uno o varios <b>escenarios</b> unidos por desplazamientos.</p>
+          <ol>
+            <li>En «Editor» pulsa <b>«＋ Nuevo»</b> para crear un entrenamiento y ponle nombre.</li>
+            <li>En la columna izquierda pulsa <b>«＋ Crear nuevo ejercicio»</b> (o toca uno existente para editarlo).</li>
+            <li>Configura el ejercicio sección por sección:
+              <ul>
+                <li><b>1 · Tipo</b>: diseñado por ti o aleatorio.</li>
+                <li><b>2 · Inicio</b>: parado (resuelves a la señal) o con desplazamiento (a la señal te desplazas para ver el escenario) y su dirección.</li>
+                <li><b>3 · Condiciones</b>: mano (libre, fuerte o débil), posición de salida, cambio de cargador obligatorio u otra condición.</li>
+                <li><b>4 · Repeticiones y descansos</b>, y un límite de tiempo total opcional.</li>
+                <li><b>5 · Desplazamientos / Escenarios</b>: «＋ Desplazamiento» añade otro escenario. En cada uno ajustas su tiempo y el siguiente desplazamiento. 🎲 = escenario aleatorio en cada repetición; ✕ lo elimina.</li>
+                <li><b>6 · Escenario</b>: diséñalo a tu gusto (ver el apartado siguiente).</li>
+              </ul>
+            </li>
+            <li>Pulsa <b>«▶ Probar ejercicio»</b> para verlo al momento. Para hacer el entrenamiento completo, elígelo en Inicio o en «En seco».</li>
+          </ol>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">6</span><span><b>Diseñar un escenario</b><small>Tarjetas, poppers, platos, móviles, muros…</small></span></summary>
+        <div class="man-body">
+          <ol>
+            <li>Añade elementos con los botones de <b>Blancos</b> (tarjeta, popper, mini popper, plato, móvil) y <b>Atrezo</b> (muro, barricada, bidón, neumáticos, cono).</li>
+            <li><b>Arrástralos</b>: de lado para moverlos, arriba/abajo para alejarlos o acercarlos.</li>
+            <li><b>Tócalos</b> para editarlos en la pestaña «Elemento»: estilo de tarjeta, no‑shoot, hard cover, color y forma de platos y poppers, tipo de móvil… ⧉ duplica y 🗑 elimina.</li>
+            <li><b>Composición</b>: dices cuántas tarjetas, poppers, platos y móviles quieres y la app los coloca sola («🎲 Generar»).</li>
+            <li><b>Muro con ventana</b>: el escenario empieza tapado y solo se ve por una ventana baja al <b>agacharte</b>.</li>
+            <li>Un móvil necesita un <b>popper activador</b>: «▶ Activación» te enseña cómo cae y arranca el móvil.</li>
+          </ol>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">7</span><span><b>Durante el entrenamiento</b><small>Pantalla, cámara, tiempos y descansos</small></span></summary>
+        <div class="man-body">
+          <ol>
+            <li>Abajo ves el <b>marcador</b>: ejercicio, repetición, escenario y tiempo.</li>
+            <li>La barra de arriba marca el <b>tiempo</b> del escenario (o el límite total, si lo has puesto). Al acabar suena el beep final.</li>
+            <li>Entre repeticiones hay un <b>descanso</b> con cuenta atrás; los últimos segundos avisan «PREPARADO».</li>
+            <li>El botón de la <b>cámara</b> muestra u oculta tu imagen; <b>⛶</b> pone la pantalla completa (en el móvil, gíralo en horizontal).</li>
+            <li><b>«✕ Detener»</b> (o la tecla Esc) para el entrenamiento en cualquier momento.</li>
+          </ol>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">8</span><span><b>Compartir con tu equipo</b><small>Enlaces y archivos</small></span></summary>
+        <div class="man-body">
+          <ol>
+            <li>En el Editor, abre un entrenamiento y pulsa <b>«🔗 Compartir»</b>: se copia un enlace. Quien lo abra podrá importarlo con un toque.</li>
+            <li>También puedes <b>exportarlo como archivo</b> (⋯ → Exportar archivo) e importarlo con «⬆ Importar archivo».</li>
+          </ol>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">9</span><span><b>Postura, vídeo, timer e historial</b><small>Las otras herramientas</small></span></summary>
+        <div class="man-body">
+          <ol>
+            <li><b>Cámara</b>: análisis de tu guardia en directo. Pulsa «🎯 Calibrar mi postura» con tu mejor guardia para que la app la use como referencia.</li>
+            <li><b>Vídeo</b>: sube un vídeo y analízalo; activa «Comparar» para verlo junto a otro.</li>
+            <li><b>Timer</b>: shot timer con beep de salida aleatorio y detección de disparos por el micrófono.</li>
+            <li><b>Historial / Comparar</b>: tus sesiones guardadas, su evolución y comparaciones.</li>
+          </ol>
+        </div>
+      </details>
+      <details class="man-item">
+        <summary><span class="man-n">10</span><span><b>Problemas frecuentes</b><small>Si algo no funciona como esperas</small></span></summary>
+        <div class="man-body">
+          <ol>
+            <li><b>No cambia de escenario al desplazarme</b>: en «En seco → Ajustes», pon «Cuánto hay que desplazarse» en «Corto», y comprueba que sales entero en la cámara.</li>
+            <li><b>Cambia hacia el lado contrario</b>: algunas cámaras envían la imagen en espejo; la app lo detecta y lo corrige sola tras un par de intentos.</li>
+            <li><b>No detecta que me agacho</b>: ponte de pie un momento antes del muro y agáchate claramente; la barra amarilla indica cuánto te falta.</li>
+            <li><b>La cámara no arranca</b>: da permiso de cámara al navegador (icono del candado junto a la dirección).</li>
+            <li><b>Ves una versión antigua</b>: la app se actualiza sola al abrirla; si sale la barra «Hay una versión nueva», pulsa «Actualizar».</li>
+          </ol>
+        </div>
+      </details>
+    </div>
+  </section>
+</section>
+
 <!-- ============ CÁMARA EN DIRECTO ============ -->
 <section id="tab-live" class="tab">
   <div class="layout">
@@ -87,81 +294,67 @@
 </section>
 
 <!-- ============ ENTRENAMIENTO EN SECO ============ -->
-<section id="tab-dry" class="tab active">
-  <div class="row between dry-top">
-    <div class="row dry-pick">
-      <label class="dry-prog-label">Entrenamiento
-        <select id="dryProgram"></select>
-      </label>
-      <button class="btn" id="dryEdit">✏️ Editor</button>
-    </div>
-    <div class="row">
-      <button class="btn" id="dryAbort">✕ Detener</button>
-      <button class="btn primary" id="dryStart">▶ Empezar</button>
-    </div>
+<section id="tab-dry" class="tab">
+  <select id="dryProgram" class="hidden" aria-hidden="true" tabindex="-1"></select>
+
+  <!-- 1 · elegir el entrenamiento -->
+  <div class="dry-pick-screen" id="dryPickScreen">
+    <div class="home-h"><span class="home-step">◎</span><div><h2>Elige el entrenamiento en seco</h2><p class="muted" id="dryPickCount"></p></div></div>
+    <div class="dry-pick-body" id="dryPickGrid"></div>
+    <p class="muted small">Al elegir uno verás el escenario y sus ajustes; pulsa «▶ Empezar» cuando estés listo. <b>Arma descargada y sin munición en la sala.</b></p>
   </div>
-  <p class="muted" id="dryDesc"></p>
-  <ol class="dry-blocks" id="dryBlocks"></ol>
-  <div class="dry-layout">
-    <div class="dry-main">
-      <div class="dry-stage" id="dryStage">
-        <canvas id="dryScene"></canvas>
-        <div class="dry-pip hidden" id="dryPip"><canvas id="dryCam"></canvas></div>
-        <div class="dry-tools">
-          <button class="dry-tool" id="dryCamToggle" data-status="off" title="Mostrar cámara" aria-label="Mostrar u ocultar la cámara" aria-pressed="false">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.6-2h6.8L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="slash" d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            <i class="dot"></i>
-          </button>
-          <button class="dry-tool" id="dryFull" title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
-        </div>
-        <div class="dry-rotate" aria-hidden="true">⟳ Gira el móvil para verlo más grande</div>
-        <video id="dryVideo" playsinline muted class="hidden"></video>
+
+  <!-- 2 · sesión de entrenamiento -->
+  <div class="dry-session hidden" id="drySession">
+    <div class="dry-modebar">
+      <button class="btn dry-back" id="dryBack" title="Elegir otro entrenamiento">← <span>Elegir otro</span></button>
+      <div class="dry-mode-id">
+        <span class="dry-mode-ic" id="dryModeIc" aria-hidden="true"></span>
+        <div><small id="dryModeKicker"></small><b id="dryModeTitle"></b></div>
       </div>
-      <div class="dry-hud" id="dryHud"></div>
+      <div class="dry-mode-actions">
+        <button class="btn" id="dryEdit">✏️ Editor</button>
+        <button class="btn" id="dryAbort">✕ Detener</button>
+        <button class="btn primary" id="dryStart">▶ Empezar</button>
+      </div>
     </div>
-    <aside class="panel">
-      <h3>Ajustes</h3>
-      <label>Seguimiento
-        <select id="dryCamMode"><option value="true">Cámara (tracking corporal)</option><option value="false">Sin cámara (flechas del teclado)</option></select>
-      </label>
-      <label>Cuánto hay que desplazarse para cambiar de escenario
-        <select id="dryMove"><option value="1">Corto (un pequeño paso)</option><option value="2">Medio</option><option value="3">Largo</option></select>
-      </label>
-      <label>Espacio a cada lado del centro
-        <select id="dryRange"><option value="1">1 desplazamiento (habitación pequeña)</option><option value="2">2 desplazamientos (salón / garaje)</option><option value="0">Libre (todo el encuadre)</option></select>
-      </label>
-      <label class="switch"><input type="checkbox" id="dryVoice"> Indicar la dirección por voz</label>
-      <div class="dry-arena-set" id="dryArenaSet">
-        <h4>Arena libre</h4>
-        <label>Tiempo hasta la indicación de movimiento
-          <select id="dryDelay"><option value="0.5">0,5 s</option><option value="1">1 s</option><option value="1.5">1,5 s</option><option value="2">2 s</option><option value="3">3 s</option></select>
-        </label>
-        <label>Poppers que activan móviles
-          <select id="dryAct"><option value="never">Nunca</option><option value="sometimes">A veces</option><option value="always">Siempre</option></select>
-        </label>
-        <label>Cambio de escenario
-          <select id="dryAdvance"><option value="camera">Al detectar tu desplazamiento (cámara)</option><option value="auto">Automático (sin cámara)</option></select>
-        </label>
-        <label>Si es automático, cambia a los
-          <select id="dryMoveDelay"><option value="0.5">0,5 s de la flecha</option><option value="1">1 s de la flecha</option><option value="1.5">1,5 s de la flecha</option><option value="2">2 s de la flecha</option><option value="3">3 s de la flecha</option></select>
-        </label>
-        <label>Número de desplazamientos
-          <select id="dryMoves"><option value="10">10</option><option value="20">20</option><option value="40">40</option><option value="0">Sin fin (hasta que pulses Detener)</option></select>
-        </label>
+    <div class="dry-layout">
+      <div class="dry-main">
+        <div class="dry-stage" id="dryStage">
+          <canvas id="dryScene"></canvas>
+          <div class="dry-pip hidden" id="dryPip"><canvas id="dryCam"></canvas></div>
+          <div class="dry-tools">
+            <button class="dry-tool" id="dryCamToggle" data-status="off" title="Mostrar cámara" aria-label="Mostrar u ocultar la cámara" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.6-2h6.8L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="slash" d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <i class="dot"></i>
+            </button>
+            <button class="dry-tool" id="dryFull" title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
+          </div>
+          <div class="dry-rate hidden" id="dryRate" role="dialog" aria-label="¿Qué tal la ronda?">
+            <b>¿Qué tal la ronda?</b>
+            <small id="dryRateSub"></small>
+            <div class="dry-rate-btns">
+              <button data-rate="2"><i>1</i>Muy fácil<em>sube 2 niveles</em></button>
+              <button data-rate="1"><i>2</i>Bien, justo<em>sube 1 nivel</em></button>
+              <button data-rate="0"><i>3</i>Difícil, pero lo hice<em>mismo nivel</em></button>
+              <button data-rate="-1" class="fail"><i>4</i>No llegué<em>baja 1 nivel</em></button>
+            </div>
+          </div>
+          <div class="dry-rotate" aria-hidden="true">⟳ Gira el móvil para verlo más grande</div>
+          <video id="dryVideo" playsinline muted class="hidden"></video>
+        </div>
+        <div class="dry-hud" id="dryHud"></div>
+        <div class="dry-info">
+          <p class="dry-desc" id="dryDesc"></p>
+          <ol class="dry-blocks" id="dryBlocks"></ol>
+          <details class="dry-how">
+            <summary>Cómo funciona</summary>
+            <ol class="howto" id="dryHowList"></ol>
+          </details>
+        </div>
       </div>
-      <details class="dry-set">
-        <summary>Cómo funciona</summary>
-        <ol class="small muted howto">
-          <li>Coloca la cámara (webcam, móvil o móvil como webcam del PC) a 3–4 m, a la altura del pecho, con espacio libre a ambos lados. <b>Arma descargada y sin munición en la sala.</b></li>
-          <li>Pulsa «Empezar» y quédate quieto en el centro unos instantes mientras la app te calibra.</li>
-          <li>Aparece el escenario y suena el beep. Trabaja tus blancos en seco.</li>
-          <li>Al segundo aparece arriba la dirección (IZQUIERDA / DERECHA): desplázate a ese lado y el escenario cambia al siguiente.</li>
-          <li>Si hay un popper con onda luminosa: es el activador. Cuando brilla, cae y pone en marcha el móvil (balancín, drop turner, deslizante o emergente). La dirección aparece igual que en el resto de escenarios: no hace falta esperar a que termine el móvil.</li>
-          <li>Entrenamientos del Editor: en cada repetición suena el beep inicial, corre el tiempo máximo (barra arriba) y suena un doble beep final. Después hay un descanso con cuenta atrás; los últimos 3 s avisan «PREPARADO».</li>
-          <li>Sin cámara: mantén pulsada la flecha ← o → del teclado para desplazarte.</li>
-        </ol>
-      </details>
-    </aside>
+      <aside class="dry-cfg" id="drySettings" aria-label="Ajustes del entrenamiento"></aside>
+    </div>
   </div>
 </section>
 
@@ -169,8 +362,14 @@
 <section id="tab-editor" class="tab">
   <div class="ed-layout">
     <aside class="panel ed-list">
-      <div class="row between"><h3>Mis entrenamientos</h3><button class="btn small primary" id="edNew">＋ Nuevo</button></div>
+      <div class="row between"><div class="ed-side-title"><h3>Mis entrenamientos</h3><small>(conjunto de ejercicios)</small></div><button class="btn small primary" id="edNew">＋ Nuevo</button></div>
       <div id="edPrograms" class="ed-programs"></div>
+      <div class="ed-ex-side hidden" id="edExSide">
+        <div class="ed-ex-side-h"><h3>Ejercicios</h3><small id="edExSideSub"></small></div>
+        <button class="btn primary ed-add-ex" id="edAddEx">＋ Crear nuevo ejercicio</button>
+        <ol class="ed-blocks" id="edBlocks"></ol>
+        <p class="ed-note">Toca uno para editarlo. ↑ ↓ cambian el orden.</p>
+      </div>
       <div class="ed-list-foot">
         <label class="btn small ed-import">⬆ Importar archivo<input type="file" id="edImport" accept=".json,application/json" hidden></label>
         <p class="ed-note">Se guardan en este navegador. Comparte un entrenamiento con el botón «Compartir».</p>
@@ -307,6 +506,6 @@
 <div id="modal" class="modal hidden"><div class="modal-box" id="modalBox"></div></div>
 <div id="toast" class="toast"></div>
 
-<script type="module" src="js/app.js?v=20261109-1754"></script>
+<script type="module" src="js/app.js?v=20261109-2144"></script>
 </body>
 </html>

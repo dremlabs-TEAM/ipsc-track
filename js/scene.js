@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261109-1754';
+import { rng, PERSPECTIVE } from './course.js?v=20261109-2144';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
@@ -52,6 +52,8 @@ function mix(a, b, t, alpha = 1) {
   return alpha === 1 ? `rgb(${c[0]},${c[1]},${c[2]})` : `rgba(${c[0]},${c[1]},${c[2]},${alpha})`;
 }
 const shadeHex = (hex, f) => mix(hex, f < 0 ? '#000000' : '#ffffff', Math.abs(f));
+// igual que shadeHex pero devuelve #rrggbb (para pasarlo luego por la niebla)
+const shadeHx = (hex, f) => { const A = rgb(hex), B = f < 0 ? [0, 0, 0] : [255, 255, 255], t = Math.abs(f); return '#' + A.map((x, i) => Math.round(x + (B[i] - x) * t).toString(16).padStart(2, '0')).join(''); };
 
 let noiseCv = null;
 function noiseCanvas() {
@@ -205,6 +207,8 @@ export function drawStyledTarget(ctx, ox, oy, k, st, o) {
   }
 }
 
+// colores del metal pintado (poppers y platos); sin color = blanco
+const STEEL_PAINT = { white: '#e9e7df', blue: '#2f6fc4', red: '#c7362f', yellow: '#e8c625', green: '#3e9a48' };
 function popperPath(ctx, P, s) {
   const aL = Math.atan2(P.cy - P.ny, -P.nh), aR = Math.atan2(P.cy - P.ny, P.nh);
   ctx.beginPath(); ctx.moveTo(-P.bh * s, 0); ctx.lineTo(-P.nh * s, -P.ny * s);
@@ -511,8 +515,8 @@ export class StageRenderer {
     ctx.save(); ctx.translate(Math.max(1, 0.012 * k), Math.max(1, 0.006 * k)); popperPath(ctx, P, s); ctx.fillStyle = fog('#7f858c'); ctx.fill(); ctx.restore();
     popperPath(ctx, P, s);
     const pg = ctx.createLinearGradient(-P.r * s, -P.h * s, P.r * s, 0);
-    const paint = it.activator ? '#f1f0ea' : '#e9e7df';
-    pg.addColorStop(0, fog(paint)); pg.addColorStop(1, fog(shadeHex(paint, -0.12 - ang * 0.25)));
+    const paint = it.color && STEEL_PAINT[it.color] ? STEEL_PAINT[it.color] : it.activator ? '#f1f0ea' : '#e9e7df';
+    pg.addColorStop(0, fog(paint)); pg.addColorStop(1, fog(shadeHx(paint, -0.12 - ang * 0.25)));
     ctx.fillStyle = pg; ctx.fill();
     ctx.save(); ctx.clip();
     const r = rng(it.seed || 5);
@@ -541,12 +545,14 @@ export class StageRenderer {
     this.shadow(ctx, th, g.x, g.y, 0.25 * k, 0.05 * k);
     ctx.fillStyle = fog('#2f3338'); ctx.fillRect(g.x - 0.02 * k, g.y - 0.92 * k, 0.04 * k, 0.92 * k);
     ctx.fillRect(g.x - 0.18 * k, g.y - 0.03 * k, 0.36 * k, 0.03 * k);
-    const c = this.P(lx, 1.02, it.d);
-    ctx.fillStyle = fog('#6c727a'); ctx.beginPath(); ctx.arc(c.x + 0.008 * k, c.y + 0.005 * k, 0.1 * k, 0, Math.PI * 2); ctx.fill();
-    const rg = ctx.createRadialGradient(c.x - 0.03 * k, c.y - 0.03 * k, 0, c.x, c.y, 0.1 * k);
-    rg.addColorStop(0, fog('#ffffff')); rg.addColorStop(1, fog('#d9d7cf'));
-    ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(c.x, c.y, 0.1 * k, 0, Math.PI * 2); ctx.fill();
-    it._screen = { cx: c.x, cy: c.y, r: 0.1 * k };
+    const c = this.P(lx, 1.02, it.d), r = 0.1 * k, sq = it.shape === 'square';
+    const paint = (it.color && STEEL_PAINT[it.color]) || '#f2f1ec';
+    const shape = (x, y) => { ctx.beginPath(); if (sq) ctx.rect(x - r, y - r, 2 * r, 2 * r); else ctx.arc(x, y, r, 0, Math.PI * 2); };
+    ctx.fillStyle = fog(shadeHx(paint, -0.45)); shape(c.x + 0.008 * k, c.y + 0.005 * k); ctx.fill(); // canto
+    const rg = ctx.createRadialGradient(c.x - 0.03 * k, c.y - 0.03 * k, 0, c.x, c.y, r * (sq ? 1.4 : 1));
+    rg.addColorStop(0, fog(shadeHx(paint, 0.12))); rg.addColorStop(1, fog(shadeHx(paint, -0.1)));
+    ctx.fillStyle = rg; shape(c.x, c.y); ctx.fill();
+    it._screen = { cx: c.x, cy: c.y, r };
   }
 
   // barrera visual (pared de escenario)
@@ -567,7 +573,7 @@ export class StageRenderer {
       ctx.fillStyle = gg; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
     } else {
       const base = style === 'banner' ? '#e9e6de' : ['#b9ad95', '#a4ad9a', '#c2b59b'][Math.floor(r() * 3)];
-      const gg = ctx.createLinearGradient(0, y0, 0, y1); gg.addColorStop(0, fog(shadeHex(base, 0.06))); gg.addColorStop(1, fog(shadeHex(base, -0.1)));
+      const gg = ctx.createLinearGradient(0, y0, 0, y1); gg.addColorStop(0, fog(shadeHx(base, 0.06))); gg.addColorStop(1, fog(shadeHx(base, -0.1)));
       ctx.fillStyle = gg; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
       ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, x1 - x0, y1 - y0); ctx.clip();
       ctx.globalAlpha = 0.16; ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = pat(ctx, 'noise'); ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
@@ -604,11 +610,11 @@ export class StageRenderer {
     this.shadow(ctx, th, g.x, g.y, 0.5 * k, 0.08 * k);
     const c = it.color || '#2f5f9e';
     const gr = ctx.createLinearGradient(x0, 0, x0 + w, 0);
-    gr.addColorStop(0, fog(shadeHex(c, -0.45))); gr.addColorStop(0.35, fog(shadeHex(c, 0.18))); gr.addColorStop(0.7, fog(c)); gr.addColorStop(1, fog(shadeHex(c, -0.5)));
+    gr.addColorStop(0, fog(shadeHx(c, -0.45))); gr.addColorStop(0.35, fog(shadeHx(c, 0.18))); gr.addColorStop(0.7, fog(c)); gr.addColorStop(1, fog(shadeHx(c, -0.5)));
     ctx.fillStyle = gr; roundRect(ctx, x0, y0, w, h, 0.05 * k); ctx.fill();
     for (const hh of [0.3, 0.6]) { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x0, g.y - hh * k - 0.02 * k, w, 0.03 * k); ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillRect(x0, g.y - hh * k + 0.01 * k, w, 0.012 * k); }
-    ctx.fillStyle = fog(shadeHex(c, 0.1)); ctx.beginPath(); ctx.ellipse(g.x, y0 + 0.01 * k, w / 2, w * 0.1, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = fog(shadeHex(c, -0.25)); ctx.beginPath(); ctx.ellipse(g.x - w * 0.22, y0 + 0.01 * k, w * 0.06, w * 0.025, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = fog(shadeHx(c, 0.1)); ctx.beginPath(); ctx.ellipse(g.x, y0 + 0.01 * k, w / 2, w * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = fog(shadeHx(c, -0.25)); ctx.beginPath(); ctx.ellipse(g.x - w * 0.22, y0 + 0.01 * k, w * 0.06, w * 0.025, 0, 0, Math.PI * 2); ctx.fill();
   }
 
   tires(ctx, it, th) {
@@ -905,14 +911,21 @@ export class StageRenderer {
     this.fence = c; return c;
   }
 
-  // Muro en primer plano con una ventana baja. p = 0 de pie (la ventana queda abajo, casi fuera de la
-  // vista) · p = 1 agachado (la ventana sube y enmarca el escenario).
+  // Muro en primer plano con una ventana baja. p (0→1, lineal) es la acción de agacharse/acercarse:
+  // p = 0 de pie: la ventana queda abajo, casi fuera de la vista.
+  // Al subir p la ventana se centra y se acerca (el hueco crece y el muro se agranda) hasta quedar
+  // como un marco ajustado a la pantalla: se ve el borde del muro y casi todo el escenario.
   portWall(ctx, cfg, p) {
     const { W, H, u } = this;
-    const ww = W * Math.min(0.95, Math.max(0.15, cfg.w ?? 0.55)), wh = H * Math.min(0.7, Math.max(0.08, cfg.h ?? 0.32));
-    const wx = W / 2 + W * Math.max(-0.45, Math.min(0.45, cfg.x ?? 0)) - ww / 2;
-    const yOpen = H * 0.5 - wh / 2, yClosed = H * 0.88;
-    const wy = yClosed + (yOpen - yClosed) * p;
+    const e = p <= 0 ? 0 : p >= 1 ? 1 : (1 - Math.cos(Math.PI * p)) / 2; // arranque y llegada suaves
+    const w0 = W * Math.min(0.95, Math.max(0.15, cfg.w ?? 0.55)), h0 = H * Math.min(0.7, Math.max(0.08, cfg.h ?? 0.32));
+    const x0 = W / 2 + W * Math.max(-0.45, Math.min(0.45, cfg.x ?? 0)) - w0 / 2, y0 = H * 0.88;
+    const w1 = W * 0.92, h1 = H * 0.86, x1 = (W - w1) / 2, y1 = H * 0.07;
+    const ww = w0 + (w1 - w0) * e, wh = h0 + (h1 - h0) * e, wx = x0 + (x1 - x0) * e, wy = y0 + (y1 - y0) * e;
+    // el muro se agranda alrededor de la ventana al acercarnos
+    const z = 1 + (Math.min(2.4, w1 / w0) - 1) * e;
+    const cx0 = x0 + w0 / 2, cy0 = y0 + h0 / 2, cx = wx + ww / 2, cy = wy + wh / 2;
+    const mx = (x) => cx + (x - cx0) * z, my = (y) => cy + (y - cy0) * z;
     const base = { ply: '#b3a387', dark: '#2b3034', wood: '#8a6a44' }[cfg.style] || '#b3a387';
     ctx.save();
     ctx.beginPath(); ctx.rect(-4, -4, W + 8, H + 8); ctx.rect(wx, wy, ww, wh);
@@ -922,22 +935,31 @@ export class StageRenderer {
     ctx.clip('evenodd');
     ctx.globalAlpha = 0.2; ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = pat(ctx, 'noise'); ctx.fillRect(0, 0, W, H);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-    // juntas de los tableros y tornillos
+    // juntas de los tableros y tornillos (se separan al acercarnos)
     ctx.fillStyle = 'rgba(0,0,0,0.22)';
-    for (let x = W / 4; x < W; x += W / 4) ctx.fillRect(x, 0, Math.max(2, 2 * u), H);
+    for (let x = -W; x < 2 * W; x += W / 4) { const X = mx(x); if (X > -10 && X < W + 10) ctx.fillRect(X, 0, Math.max(2, 2 * u * z), H); }
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    for (let x = W / 8; x < W; x += W / 4) for (let y = H * 0.08; y < H; y += H * 0.22) ctx.fillRect(x, y, 3 * u, 3 * u);
+    for (let x = -W + W / 8; x < 2 * W; x += W / 4) for (let y = -H + H * 0.08; y < 2 * H; y += H * 0.22) {
+      const X = mx(x), Y = my(y); if (X > -10 && X < W + 10 && Y > -10 && Y < H + 10) ctx.fillRect(X, Y, 3 * u * z, 3 * u * z);
+    }
+    // sombra en los bordes de la pantalla al acercarnos (sensación de cercanía)
+    if (e > 0) {
+      const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.75);
+      v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, `rgba(0,0,0,${0.35 * e})`);
+      ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+    }
     ctx.restore();
-    // marco de listones alrededor de la ventana
-    const fw = Math.max(5, 0.018 * H);
+    // marco de listones alrededor de la ventana (más grueso cuanto más cerca)
+    const fw = Math.max(5, 0.018 * H) * (1 + (z - 1) * 0.55);
     ctx.fillStyle = '#7a5c38';
     ctx.fillRect(wx - fw, wy - fw, ww + 2 * fw, fw); ctx.fillRect(wx - fw, wy + wh, ww + 2 * fw, fw);
     ctx.fillRect(wx - fw, wy, fw, wh); ctx.fillRect(wx + ww, wy, fw, wh);
     ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(wx - fw, wy - fw, ww + 2 * fw, Math.max(1, fw * 0.25));
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(wx - fw, wy + wh + fw * 0.7, ww + 2 * fw, Math.max(1, fw * 0.3));
     // sombra interior en el borde superior de la ventana
-    const sh = ctx.createLinearGradient(0, wy, 0, wy + wh * 0.25);
+    const sh = ctx.createLinearGradient(0, wy, 0, wy + Math.min(wh * 0.25, H * 0.08));
     sh.addColorStop(0, 'rgba(0,0,0,0.38)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = sh; ctx.fillRect(wx, wy, ww, wh * 0.25);
+    ctx.fillStyle = sh; ctx.fillRect(wx, wy, ww, Math.min(wh * 0.25, H * 0.08));
   }
 
   // aviso centrado arriba (p. ej. «AGÁCHATE»)
@@ -1050,6 +1072,18 @@ export class StageRenderer {
     ctx.restore();
   }
 
+  // condiciones del ejercicio (mano, salida, recarga): etiqueta ámbar abajo, centrada
+  condHud(ctx, text) {
+    const { W, H } = this;
+    ctx.save(); ctx.font = `700 ${H * 0.034}px Rajdhani, sans-serif`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${H * 0.004}px`;
+    const label = text.toUpperCase(), w = ctx.measureText(label).width + H * 0.06, h = H * 0.06, x = W / 2 - w / 2, y = H * 0.84;
+    roundRect(ctx, x, y, w, h, h / 2); ctx.fillStyle = 'rgba(8,12,18,0.72)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,197,61,0.75)'; ctx.lineWidth = Math.max(1, H * 0.002); ctx.stroke();
+    ctx.fillStyle = '#ffd36b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, W / 2, y + h / 2 + 1);
+    ctx.restore();
+  }
+
   // tiempo máximo del ejercicio: barra fina arriba + cifra discreta
   timerHud(ctx, elapsed, par) {
     const { W, H, u } = this, p = clamp01(elapsed / par), left = Math.max(0, par - elapsed);
@@ -1120,6 +1154,7 @@ export class StageRenderer {
     if (view.dim) { ctx.fillStyle = `rgba(4,6,10,${view.dim})`; ctx.fillRect(0, 0, W, H); }
     if (view.timer) this.timerHud(ctx, view.timer.elapsed, view.timer.par);
     if (view.info || view.warn) this.infoHud(ctx, view.info || '', view.warn);
+    if (view.cond && !view.big) this.condHud(ctx, view.cond);
     if (view.arrow) this.arrowHud(ctx, view.arrow.dir, view.arrow.since, now);
     if (view.portHint) this.hintHud(ctx, '↓  AGÁCHATE', now, view.portHint.progress);
     if (view.big) this.centerHud(ctx, view.big, view.sub, view.bigColor);

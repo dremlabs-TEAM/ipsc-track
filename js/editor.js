@@ -4,13 +4,13 @@
 // configurar cada elemento (tarjetas, poppers, placas, móviles, muros, bidones…).
 import {
   composeStage, stageFromLayout, layoutOf, finalizeStage, PERSPECTIVE, makeStyle, randomKind, TARGET_KINDS, KIND_LABEL, HARD_PRESETS, kindWidth,
-} from './course.js?v=20261109-1754';
-import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261109-1754';
-import * as store from './storage.js?v=20261109-1754';
+} from './course.js?v=20261109-2144';
+import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261109-2144';
+import * as store from './storage.js?v=20261109-2144';
 import {
-  newProgram, newExercise, migrateBlock, newCoursePosition, defaultComp, exampleProgram, blockSummary, blockDuration, programDuration, fmtDuration,
+  newProgram, newExercise, migrateBlock, newCoursePosition, defaultComp, exampleProgram, defaultCond, condText, HAND_LABEL, START_LABEL, blockSummary, blockDuration, programDuration, fmtDuration,
   shareUrl, sanitizeProgram, MOVER_LABEL, DIST_LABEL, DIR_LABEL, DIR_ARROW, defaultPort,
-} from './program.js?v=20261109-1754';
+} from './program.js?v=20261109-2144';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -32,8 +32,10 @@ function itemSize(it) {
     default: return [0.5, 1];
   }
 }
-const ITEM_NAME = { paper: 'Tarjeta', popper: 'Popper', plate: 'Placa', wall: 'Muro', barrel: 'Bidón', tires: 'Neumáticos', cone: 'Cono', mover: 'Móvil' };
+const ITEM_NAME = { paper: 'Tarjeta', popper: 'Popper', plate: 'Plato', wall: 'Muro', barrel: 'Bidón', tires: 'Neumáticos', cone: 'Cono', mover: 'Móvil' };
 const WALL_STYLE_LABEL = { ply: 'Madera pintada', mesh: 'Malla oscura', banner: 'Con cartel' };
+// colores del metal (poppers y platos): blanco por defecto
+const STEEL_COLORS = { white: 'Blanco', blue: 'Azul', red: 'Rojo', yellow: 'Amarillo', green: 'Verde' };
 const BARREL_COLORS = { '#2f5f9e': 'Azul', '#1f2a36': 'Negro', '#8e2d2a': 'Rojo', '#3f6b3a': 'Verde', '#c9a227': 'Amarillo' };
 const MOVER_TYPES = ['swinger', 'drop', 'slider', 'bobber'];
 const MAIN_TYPES = ['paper', 'popper', 'plate', 'mover'];
@@ -101,12 +103,35 @@ export function initEditor(app) {
     flush();
     curId = id; prog = cur() ? clone(cur()) : null;
     if (prog) { ensureLayouts(prog); store.saveProgram(prog); }
-    selBlockId = prog?.blocks[0]?.id || null; selPosId = null;
+    selBlockId = null; selPosId = null; // se elige en la columna izquierda
     renderList(); renderMain();
   }
 
   // ------------------------------------------------------------ entrenamiento abierto
-  let insTab = 'settings'; // pestaña activa del inspector
+  let insTab = 'elem'; // pestaña activa del inspector del escenario
+  // secciones plegables del ejercicio (se recuerda cuáles has cerrado)
+  let secClosed = {};
+  try { secClosed = JSON.parse(localStorage.getItem('ipsctrack.edClosed') || '{}') || {}; } catch { secClosed = {}; }
+  const pl = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const CAM_NOTE = '«Al desplazarte» usa la cámara para detectar tu movimiento. «Automático» no necesita cámara: el escenario cambia solo a los segundos indicados.';
+  function sec(key, n, title, sub, body) {
+    return `<details class="ed-sec" data-sec="${key}" ${secClosed[key] ? '' : 'open'}>
+      <summary><span class="ed-sec-n">${n}</span><span class="ed-sec-t"><b>${title}</b><small>${sub}</small></span><span class="ed-sec-caret" aria-hidden="true"><svg viewBox="0 0 12 12" width="13" height="13"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary>
+      <div class="ed-sec-body">${body}</div></details>`;
+  }
+  // selector compacto de opciones: [valor, etiqueta, descripción]; debajo se explica la elegida
+  function seg(k, curV, opts) {
+    const on = opts.find(([v]) => String(v) === String(curV)) || opts[0];
+    return `<div class="ed-seg-wrap"><div class="ed-seg" role="radiogroup">${opts.map(([v, label]) => `<label class="${String(v) === String(on[0]) ? 'on' : ''}">
+        <input type="radio" name="sg-${k}" data-k="${k}" value="${v}" ${String(v) === String(on[0]) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div>
+      <p class="ed-seg-desc">${on[2]}</p></div>`;
+  }
+  $('#edMain').addEventListener('toggle', (e) => {
+    const d = e.target; if (!d.matches?.('details.ed-sec')) return;
+    secClosed[d.dataset.sec] = !d.open;
+    try { localStorage.setItem('ipsctrack.edClosed', JSON.stringify(secClosed)); } catch { /* sin almacenamiento */ }
+    if (d.open && d.contains(canvas)) renderer.checkSize(true);
+  }, true);
 
   function renderMain() {
     const main = $('#edMain');
@@ -116,6 +141,7 @@ export function initEditor(app) {
         <p class="muted">Crea secuencias de ejercicios a tu gusto: una o varias posiciones encadenadas con desplazamientos, escenarios diseñados por ti o aleatorios, muros con ventana, tiempos y repeticiones. Después entrénalos en «En seco» o compártelos con tu equipo.</p>
         <button class="btn primary" id="edNew2">＋ Crear entrenamiento</button></div>`;
       $('#edNew2').onclick = () => $('#edNew').click();
+      $('#edExSide').classList.add('hidden');
       return;
     }
     main.innerHTML = `
@@ -138,17 +164,6 @@ export function initEditor(app) {
         </div>
       </header>
       <textarea id="edNotes" class="ed-notes" rows="1" placeholder="Notas: objetivo, material, indicaciones para el equipo…" maxlength="500">${esc(prog.notes || '')}</textarea>
-      <div class="ed-ex-bar">
-        <details class="ed-dd ed-ex-dd" id="edExDd">
-          <summary class="ed-ex-cur" id="edExCur" title="Cambiar de ejercicio"></summary>
-          <div class="ed-menu ed-ex-menu">
-            <div class="ed-ex-menu-t">Ejercicios de este entrenamiento</div>
-            <ol class="ed-blocks" id="edBlocks"></ol>
-            <button class="ed-ex-add" data-addblock="1">＋ Añadir ejercicio</button>
-          </div>
-        </details>
-        <button class="btn primary" data-addblock="1" title="Añadir un ejercicio nuevo al final">＋ Ejercicio</button>
-      </div>
       <section id="edBlock"></section>`;
     $('#edName').oninput = (e) => { prog.name = e.target.value || 'Sin nombre'; persist(); };
     $('#edNotes').oninput = (e) => { prog.notes = e.target.value; persist(false); };
@@ -158,6 +173,7 @@ export function initEditor(app) {
     $('#edDel').onclick = () => {
       closeMenus();
       if (!confirm(`¿Borrar el entrenamiento «${prog.name}»?`)) return;
+      clearTimeout(saveT); saveT = null; // un guardado pendiente no debe resucitar el entrenamiento borrado
       store.deleteProgram(prog.id); curId = null; prog = null; renderList(); renderMain(); toast('Entrenamiento borrado');
     };
     renderBlocks(); renderBlock();
@@ -168,17 +184,18 @@ export function initEditor(app) {
   function addBlock(b) {
     ensureLayouts({ blocks: [b] });
     b.name = `Ejercicio ${prog.blocks.length + 1}`;
-    prog.blocks.push(b); selBlockId = b.id; selPosId = null; insTab = 'settings'; persist(); renderBlocks(); renderBlock();
+    prog.blocks.push(b); selBlockId = b.id; selPosId = null; insTab = 'elem'; persist(); renderBlocks(); renderBlock();
+    toast(`«${b.name}» creado: configúralo abajo`);
+    if (window.innerWidth <= 1000) $('#edBlock').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  $('#edAddEx').onclick = () => { if (prog) addBlock(newExercise()); };
 
-  // desplegable: ejercicio actual + lista para cambiar, ordenar, duplicar o eliminar
+  // lista de ejercicios (columna izquierda): cambiar, ordenar, duplicar o eliminar
   function renderBlocks() {
-    const n = prog.blocks.length, bi = prog.blocks.findIndex((b) => b.id === selBlockId), b = prog.blocks[bi];
+    const n = prog.blocks.length;
     $('#edChips').innerHTML = `<span>${n} ${n === 1 ? 'ejercicio' : 'ejercicios'}</span><span>≈ ${fmtDuration(programDuration(prog))}</span>`;
-    $('#edExCur').innerHTML = b ? `<span class="ed-num">${bi + 1}</span>
-        <span class="ed-ex-txt"><small>Ejercicio ${bi + 1} de ${n}</small><b>${esc(b.name)}</b><em>${esc(blockSummary(b))}</em></span>
-        <span class="ed-ex-caret">▾</span>`
-      : '<span class="ed-ex-txt"><b>Sin ejercicios</b><em>Añade uno para empezar</em></span><span class="ed-ex-caret">▾</span>';
+    $('#edExSide').classList.remove('hidden');
+    $('#edExSideSub').textContent = `de «${prog.name}» · toca uno para editarlo`;
     $('#edBlocks').innerHTML = prog.blocks.map((x, i) => `<li class="ed-bl ${x.id === selBlockId ? 'active' : ''}" data-id="${x.id}">
         <span class="ed-num">${i + 1}</span>
         <div class="ed-bl-txt"><b>${esc(x.name)}</b><small>${esc(blockSummary(x))}</small></div>
@@ -204,20 +221,20 @@ export function initEditor(app) {
     const c = s.comp;
     return `<p class="ed-note">Genera el escenario con estas cantidades al pulsar «🎲 Generar» (o al cambiar un valor). Después puedes ajustarlo a mano.</p>
       ${group('Tarjetas', `<div class="ed-grid">
-        ${numField('comp.paper', 'Puestos de tarjeta', c.paper, 0, 8)}
+        ${numField('comp.paper', 'Nº de tarjetas', c.paper, 0, 8)}
         <label class="switch ed-full"><input type="checkbox" data-k="comp.styleRandom" ${c.styleRandom ? 'checked' : ''}> Estilos aleatorios</label>
         <span class="${c.styleRandom ? 'hidden' : ''}">
           ${numField('comp.ns', 'No‑shoot lateral', c.ns, 0, c.paper)}
           ${numField('comp.nsTilt', 'No‑shoot inclinado', c.nsTilt, 0, c.paper)}
-          ${numField('comp.double', 'Dobles', c.double, 0, c.paper)}
-          ${numField('comp.doubleNs', 'Dobles con NS', c.doubleNs, 0, c.paper)}
-          ${numField('comp.hard', 'Con cobertura', c.hard, 0, c.paper)}
-          <label>Tipo de cobertura<select data-k="comp.hardPreset">${opt('random', 'Aleatoria', c.hardPreset)}${Object.entries(HARD_PRESETS).map(([k, p]) => opt(k, p.label, c.hardPreset)).join('')}</select></label>
+          ${numField('comp.double', 'Nº de tarjetas dobles', c.double, 0, c.paper)}
+          ${numField('comp.doubleNs', 'Nº de tarjetas dobles con NS', c.doubleNs, 0, c.paper)}
+          ${numField('comp.hard', 'Nº de tarjetas con cobertura', c.hard, 0, c.paper)}
+          <label>Tipo de cobertura (hard cover)<select data-k="comp.hardPreset">${opt('random', 'Aleatoria', c.hardPreset)}${Object.entries(HARD_PRESETS).map(([k, p]) => opt(k, p.label, c.hardPreset)).join('')}</select></label>
         </span></div>`)}
       ${group('Metal', `<div class="ed-grid">
-        ${numField('comp.poppers', 'Poppers', c.poppers, 0, 6)}
+        ${numField('comp.poppers', 'Nº de poppers', c.poppers, 0, 6)}
         <label>Tamaño<select data-k="comp.popSize">${opt('full', 'Normal (85 cm)', c.popSize)}${opt('mini', 'Mini (56 cm)', c.popSize)}${opt('mixed', 'Mezclados', c.popSize)}</select></label>
-        ${numField('comp.plates', 'Placas', c.plates, 0, 6)}</div>`)}
+        ${numField('comp.plates', 'Nº de platos', c.plates, 0, 6)}</div>`)}
       ${group('Móvil', `<div class="ed-grid">
         <label class="ed-full">Tipo<select data-k="comp.mover">${Object.entries(MOVER_LABEL).map(([k, l]) => opt(k, l, c.mover)).join('')}</select></label>
         <span class="${c.mover === 'none' ? 'hidden' : ''}">
@@ -240,13 +257,13 @@ export function initEditor(app) {
         <label>Acabado<select data-k="port.style">${opt('ply', 'Madera pintada', d.style)}${opt('wood', 'Madera', d.style)}${opt('dark', 'Oscuro', d.style)}</select></label></div>`)
         + group('Apertura', `<div class="ed-grid">
         <label class="ed-full">Se abre<select data-k="port.open">${opt('camera', 'Al agacharte (cámara; ↓ sin cámara)', d.open)}${opt('auto', 'Automático (sin cámara)', d.open)}</select></label>
-        ${numField('port.at', d.open === 'auto' ? 'A los' : 'Sin cámara, a los', d.at, 0.2, 60, 0.1, 's')}</div>`, 'El tiempo del escenario empieza a contar cuando se ve por la ventana.') : ''}`;
+        ${numField('port.at', d.open === 'auto' ? 'A los' : 'Sin cámara, a los', d.at, 0.2, 60, 0.1, 's')}</div>`, '«Al agacharte» usa la cámara para detectar que te agachas (sin cámara: flecha ↓ del teclado). «Automático» no necesita cámara. El tiempo del escenario empieza a contar cuando se ve por la ventana.') : ''}`;
   }
 
   // zona de trabajo: escenario (izquierda) + inspector con pestañas (derecha)
-  function workHTML(s, settingsLabel, settingsHTML) {
+  function workHTML(s) {
     const theme = s.layout?.theme ?? 0;
-    const tabs = [['settings', settingsLabel], ['elem', 'Elemento'], ['comp', 'Composición'], ['port', 'Muro']];
+    const tabs = [['elem', 'Elemento'], ['comp', 'Composición'], ['port', 'Muro con ventana']];
     return `<div class="ed-work">
       <div class="ed-canvas-col">
         <div class="ed-toolbar">
@@ -260,7 +277,7 @@ export function initEditor(app) {
         <div class="ed-palette">
           <div class="ed-pal-group"><span>Blancos</span>
             <button data-add="paper">Tarjeta</button><button data-add="popper">Popper</button><button data-add="popper-mini">Mini popper</button>
-            <button data-add="plate">Placa</button><button data-add="mover">Móvil</button></div>
+            <button data-add="plate">Plato</button><button data-add="mover">Móvil</button></div>
           <div class="ed-pal-group"><span>Atrezo</span>
             <button data-add="wall">Muro</button><button data-add="barricade">Barricada</button><button data-add="barrel">Bidón</button>
             <button data-add="tires">Neumáticos</button><button data-add="cone">Cono</button></div>
@@ -270,7 +287,6 @@ export function initEditor(app) {
       </div>
       <aside class="ed-inspector"><div class="ed-ins-in">
         <div class="ed-tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-ins="${k}" class="${insTab === k ? 'active' : ''}">${l}${k === 'port' && s.port?.on ? ' •' : ''}</button>`).join('')}</div>
-        <div class="ed-pane ${insTab === 'settings' ? 'active' : ''}" data-pane="settings">${settingsHTML}</div>
         <div class="ed-pane ${insTab === 'elem' ? 'active' : ''}" data-pane="elem"><div class="ed-item" id="edItem"></div></div>
         <div class="ed-pane ${insTab === 'comp' ? 'active' : ''}" data-pane="comp">${compHTML(s)}</div>
         <div class="ed-pane ${insTab === 'port' ? 'active' : ''}" data-pane="port">${portHTML(s)}</div>
@@ -294,86 +310,131 @@ export function initEditor(app) {
     const host = $('#edBlock'), b = block();
     park.appendChild(canvas); // el canvas se reutiliza: se aparca antes de rehacer el formulario
     if (!host) return;
-    if (!b) { host.innerHTML = ''; preview = null; return; }
-    const R = b.random;
-    const bi = prog.blocks.indexOf(b);
+    if (!b) {
+      preview = null;
+      host.innerHTML = `<div class="ed-pick">
+        <div class="ed-pick-icon">◎</div>
+        <h3>Selecciona un ejercicio o crea uno nuevo</h3>
+        <p class="muted">${window.innerWidth <= 1000 ? 'Arriba' : 'En la columna de la izquierda'} tienes tus ejercicios: toca uno para editarlo o usa «＋ Crear nuevo ejercicio».</p>
+      </div>`;
+      return;
+    }
+    const R = b.random, rnd = !!R?.on;
+    const bi = prog.blocks.indexOf(b), nPos = b.positions.length;
     const head = `<div class="ed-panel-head">
-      <div class="ed-panel-title"><small>Ejercicio ${bi + 1} de ${prog.blocks.length}</small>
-        <input class="ed-bname" data-k="name" value="${esc(b.name)}" maxlength="60" aria-label="Nombre del ejercicio"></div>
+      <div class="ed-panel-title"><small>Editando el ejercicio ${bi + 1} de ${prog.blocks.length}</small>
+        <input class="ed-bname" data-k="name" value="${esc(b.name)}" maxlength="60" aria-label="Nombre del ejercicio" title="Toca para cambiar el nombre"></div>
       <button class="btn primary" id="edTry">▶ Probar ejercicio</button>
     </div>`;
-    // ajustes generales del ejercicio
-    const general = `<div class="ed-course-bar">
-        <div class="ed-grid ed-grid-5">
-          ${numField('reps', 'Repeticiones', b.reps, 1, 100)}
-          ${numField('rest', 'Descanso entre ellas', b.rest, 0, 600, 1, 's')}
-          <label>Salida tras el descanso<select data-k="startMode">${opt('fixed', 'Al acabar la cuenta', b.startMode)}${opt('random', 'Aleatoria (1,5–2,8 s)', b.startMode)}</select></label>
-          ${numField('maxTime', 'Tiempo máximo total', b.maxTime || 0, 0, 600, 0.5, 's')}
-          ${numField('restAfter', 'Descanso al terminar', b.restAfter, 0, 600, 1, 's')}
-        </div>
-        <p class="ed-note">Tiempo máximo total: 0 = sin límite. Si se agota, suena el beep final y termina la repetición.</p>
-        <div class="ed-switches">
-          <label class="switch ed-switch-card"><input type="checkbox" data-k="startMove" ${b.startMove ? 'checked' : ''}>
-            <span><b>Empezar desplazándote</b><small>Con el primer beep la galería está vacía y sale la flecha: al desplazarte entra la posición 1.</small></span></label>
-          <label class="switch ed-switch-card"><input type="checkbox" data-k="random.on" ${R?.on ? 'checked' : ''}>
-            <span><b>Modo aleatorio</b><small>Escenarios y desplazamientos al azar en cada repetición, en lugar de posiciones diseñadas.</small></span></label>
-        </div>
-      </div>`;
-    if (R?.on) {
+    const desc = (t) => `<p class="ed-sec-desc">${t}</p>`;
+    // ajustes de un desplazamiento: el que lleva a la posición idx
+    const moveFields = (idx) => {
+      const m = b.positions[idx];
+      return `<div class="ed-grid">
+        <label>Dirección<select data-k="mv.${idx}.dir">${['left', 'right', 'random'].map((d) => opt(d, DIR_LABEL[d], m.dir)).join('')}</select></label>
+        <label>Cambio de escenario<select data-k="mv.${idx}.advance">${opt('camera', 'Al desplazarte (usa la cámara)', m.advance || 'camera')}${opt('auto', 'Automático (sin cámara)', m.advance)}</select></label>
+        ${m.advance === 'auto' ? numField(`mv.${idx}.moveDelay`, 'Cambia tras la flecha a los', m.moveDelay ?? 1, 0.2, 30, 0.1, 's') : ''}</div>
+        <p class="ed-note">${CAM_NOTE}</p>`;
+    };
+    const sec1 = sec('type', 1, 'Tipo de ejercicio',
+      rnd ? `Aleatorio · ${R.count ? pl(R.count, 'escenario', 'escenarios') : 'escenarios sin fin'}` : `Diseñado por ti · ${pl(nPos, 'escenario', 'escenarios')}`,
+      seg('mode', rnd ? 'random' : 'design', [
+        ['design', '✎ Diseñado por ti', 'Tú eliges cada escenario, cada desplazamiento y su tiempo.'],
+        ['random', '🎲 Aleatorio', 'Escenarios y desplazamientos al azar, distintos en cada repetición. Solo eliges cuántos y su ritmo.']]));
+    const p0 = b.positions[0];
+    const sec2 = sec('start', 2, 'Inicio parado o con desplazamiento',
+      `${b.startMove ? `Con desplazamiento${!rnd && p0 ? ` ${DIR_ARROW[p0.dir]}` : ''}` : 'Parado'} · beep ${b.startMode === 'random' ? 'aleatorio' : 'fijo'}`,
+      seg('startMove', String(!!b.startMove), [
+        ['false', 'Parado', 'A la señal, resuelve el escenario.'],
+        ['true', '→ Con desplazamiento', 'A la señal, desplázate en la dirección de la flecha para ver el escenario.']])
+      + (b.startMove ? (rnd ? '<p class="ed-note">En el modo aleatorio la dirección del primer desplazamiento también es al azar.</p>'
+        : `<div class="ed-sub"><div class="ed-group-t">Primer desplazamiento</div>${moveFields(0)}</div>`) : '')
+      + `<div class="ed-grid"><label class="ed-full">Beep de salida (tras la cuenta atrás)<select data-k="startMode">${opt('fixed', 'Fijo', b.startMode)}${opt('random', 'Aleatorio (entre 1,5 y 2,8 s después)', b.startMode)}</select></label></div>`);
+    const C = { ...defaultCond(), ...(b.cond || {}) };
+    const secC = sec('cond', 3, 'Condiciones',
+      condText(C) || 'Dos manos, desde la funda · sin condiciones especiales',
+      desc('Condiciones de salida y de tiro para todas las repeticiones de este ejercicio. Se muestran en pantalla durante el entrenamiento.') +
+      `<div class="ed-grid">
+        <label>Mano<select data-k="cond.hand">${Object.entries(HAND_LABEL).map(([k, l]) => opt(k, l, C.hand)).join('')}</select></label>
+        <label class="ed-full">Posición de salida<select data-k="cond.start">${Object.entries(START_LABEL).map(([k, l]) => opt(k, l, C.start)).join('')}</select></label>
+      </div>
+      <label class="switch"><input type="checkbox" data-k="cond.reload" ${C.reload ? 'checked' : ''}> Cambio de cargador obligatorio</label>
+      <div class="ed-grid"><label class="ed-full">Otra condición (opcional)<input type="text" data-k="cond.note" value="${esc(C.note)}" maxlength="60" placeholder="Ej.: solo un impacto por tarjeta"></label></div>`);
+    const sec3 = sec('reps', 4, 'Repeticiones y descansos',
+      `${b.reps}× · descanso ${b.rest} s${b.maxTime ? ` · límite total ${String(b.maxTime).replace('.', ',')} s` : ''}`,
+      desc('Cuántas veces repites el ejercicio, los descansos entre repeticiones y antes del siguiente ejercicio y, si quieres, un tiempo límite total.') +
+      `<div class="ed-grid ed-grid-4">
+        ${numField('reps', 'Repeticiones', b.reps, 1, 100)}
+        ${numField('rest', 'Descanso entre repeticiones', b.rest, 0, 600, 1, 's')}
+        ${numField('restAfter', 'Descanso antes del siguiente ejercicio', b.restAfter, 0, 600, 1, 's')}
+      </div>
+      <div class="ed-sub">
+        <label class="switch"><input type="checkbox" data-k="limitOn" ${b.maxTime ? 'checked' : ''}> Límite de tiempo total por repetición (opcional)</label>
+        ${b.maxTime ? `<div class="ed-grid">${numField('maxTime', 'Tiempo total máximo', b.maxTime, 0.5, 600, 0.5, 's')}</div>` : ''}
+        <p class="ed-note">${b.maxTime ? 'Cuenta desde la señal. Al llegar a ese tiempo suena el beep final y la repetición termina aunque queden escenarios.' : 'Desactivado: cada repetición dura lo que sumen los tiempos de sus escenarios (sección 5).'}</p>
+      </div>`);
+    if (rnd) {
       preview = null;
-      host.innerHTML = `<div class="ed-panel">${head}${general}
-        <div class="ed-panel-body">
-          ${group('Posiciones aleatorias', `<div class="ed-grid">
-            ${numField('random.count', 'Número de posiciones', R.count, 0, 200)}
-            ${numField('random.time', 'Tiempo en cada una', R.time, 0.3, 60, 0.1, 's')}
-            <label>Poppers con móvil<select data-k="random.activators">${opt('never', 'Nunca', R.activators)}${opt('sometimes', 'A veces', R.activators)}${opt('always', 'Siempre', R.activators)}</select></label></div>`,
-            'Número de posiciones: 0 = sin fin (hasta que lo detengas o se agote el tiempo máximo). Tras el tiempo de cada posición sale la flecha hacia un lado al azar.')}
-          ${group('Desplazamientos', `<div class="ed-grid">
-            <label>Cambio de escenario<select data-k="random.advance">${opt('camera', 'Al desplazarte (cámara)', R.advance)}${opt('auto', 'Automático (sin cámara)', R.advance)}</select></label>
-            ${R.advance === 'auto' ? numField('random.moveDelay', 'Cambia tras la flecha a los', R.moveDelay ?? 1, 0.2, 30, 0.1, 's') : ''}</div>`,
-            'Para elegir tú cada escenario y cada desplazamiento, desactiva el modo aleatorio.')}
-        </div></div>`;
+      const sec4 = sec('random', 5, 'Desplazamientos / Escenarios aleatorios',
+        `${R.count ? pl(R.count, 'escenario', 'escenarios') : 'Sin fin'} · ${String(R.time).replace('.', ',')} s en cada uno · cambio ${R.advance === 'auto' ? 'automático (sin cámara)' : 'al desplazarte (cámara)'}`,
+        desc('Cuántos escenarios aleatorios salen, cuánto tiempo tienes en cada uno y cómo se cambia de uno a otro.') +
+        `<div class="ed-sec-cols">
+          ${group('Escenarios', `<div class="ed-grid">
+            ${numField('random.count', 'Cuántos (0 = sin fin)', R.count, 0, 200)}
+            ${numField('random.time', 'Tiempo para resolver cada uno', R.time, 0.3, 60, 0.1, 's')}
+            <label class="ed-full">Poppers que activan móviles<select data-k="random.activators">${opt('never', 'Nunca', R.activators)}${opt('sometimes', 'A veces', R.activators)}${opt('always', 'Siempre', R.activators)}</select></label></div>`,
+            'Pasado ese tiempo sale la flecha hacia un lado al azar.')}
+          ${group('Cambio de escenario', `<div class="ed-grid">
+            <label class="ed-full">Cuándo cambia<select data-k="random.advance">${opt('camera', 'Al desplazarte (usa la cámara)', R.advance)}${opt('auto', 'Automático (sin cámara)', R.advance)}</select></label>
+            ${R.advance === 'auto' ? numField('random.moveDelay', 'Cambia tras la flecha a los', R.moveDelay ?? 1, 0.2, 30, 0.1, 's') : ''}</div>`, CAM_NOTE)}
+          ${group('Muros con ventana', `<label class="switch"><input type="checkbox" data-k="random.walls" ${R.walls ? 'checked' : ''}> Incluir muros con ventana (agacharse)</label>
+            ${R.walls && R.advance === 'auto' ? `<div class="ed-grid">${numField('random.portDelay', 'La ventana se abre sola a los (0 = nada más aparecer)', R.portDelay ?? 0, 0, 30, 0.1, 's')}</div>` : ''}`,
+            R.advance === 'auto' ? 'En automático la ventana se abre sola: no hace falta agacharse delante de la cámara.' : 'Algunos escenarios empiezan tras un muro: agáchate para verlos por la ventana.')}
+        </div>`);
+      host.innerHTML = `<div class="ed-panel">${head}<div class="ed-secs">${sec1}${sec2}${secC}${sec3}${sec4}</div></div>`;
       $('#edTry').onclick = () => tryBlock(b);
       return;
     }
-    // ---- posiciones diseñadas ----
+    // ---- escenarios diseñados ----
     if (!b.positions.some((p) => p.id === selPosId)) selPosId = b.positions[0]?.id;
     const pi = b.positions.findIndex((p) => p.id === selPosId), pos = b.positions[pi];
-    const n = b.positions.length, arrives = pi > 0 || b.startMove;
-    const posSettings = `
+    const n = nPos;
+    const startChip = b.startMove ? `<span class="ed-step start" title="Galería vacía con la señal"><b>▶</b><small>salida</small></span>` : '';
+    const posSettings = `<div class="ed-pos-box">
       <div class="ed-pos-tools">
-        <b>Posición ${pi + 1} de ${n}</b>
+        <b class="ed-pos-title">Ajustes de la posición ${pi + 1} <small>de ${n}</small></b>
         <div class="row">
-          <button class="ed-ic" data-pos="left" title="Mover antes" ${pi <= 0 ? 'disabled' : ''}>◀</button>
-          <button class="ed-ic" data-pos="right" title="Mover después" ${pi >= n - 1 ? 'disabled' : ''}>▶</button>
-          <button class="ed-ic" data-pos="dup" title="Duplicar posición">⧉</button>
-          <button class="ed-ic danger" data-pos="del" title="Eliminar posición" ${n <= 1 ? 'disabled' : ''}>✕</button>
+          <button class="btn small" data-pos="left" ${pi <= 0 ? 'disabled' : ''}>◀ Antes</button>
+          <button class="btn small" data-pos="right" ${pi >= n - 1 ? 'disabled' : ''}>Después ▶</button>
+          <button class="btn small" data-pos="dup">⧉ Duplicar</button>
+          <button class="btn small danger" data-pos="del" ${n <= 1 ? 'disabled' : ''}>✕ Eliminar</button>
         </div>
       </div>
-      ${!arrives ? group('Llegada', '<p class="ed-note">Posición de salida: aparece con el beep inicial. Activa «Empezar desplazándote» si quieres llegar a ella desplazándote.</p>')
-        : group('Llegada', `<div class="ed-grid">
-          <label>Desplazamiento<select data-k="pos.dir">${['left', 'right', 'random'].map((d) => opt(d, DIR_LABEL[d], pos.dir)).join('')}</select></label>
-          <label>Cambio<select data-k="pos.advance">${opt('camera', 'Al desplazarte (cámara)', pos.advance || 'camera')}${opt('auto', 'Automático', pos.advance)}</select></label>
-          ${pos.advance === 'auto' ? numField('pos.moveDelay', 'Cambia tras la flecha a', pos.moveDelay ?? 1, 0.2, 30, 0.1, 's') : ''}</div>`,
-          pi === 0 ? 'Con el beep inicial la galería está vacía y sale esta flecha.' : '')}
-      ${group('Tiempo', `<div class="ed-grid">
-        ${numField('pos.time', pi === n - 1 ? 'Hasta el beep final' : 'Hasta la siguiente flecha', pos.time, 0.5, 60, 0.1, 's')}
-        ${numField('activatorAt', 'Popper activador cae a', pos.activatorAt, 0.5, 10, 0.1, 's')}</div>`)}
-      ${group('Escenario', `<label class="switch"><input type="checkbox" data-k="pos.randomScene" ${pos.randomScene ? 'checked' : ''}> Aleatorio en cada repetición</label>`,
-        pos.randomScene ? 'Cada repetición genera un escenario nuevo con la composición de la pestaña «Composición».' : 'Se usa siempre el escenario que ves (puedes editarlo a mano).')}`;
-    const startChip = b.startMove ? `<span class="ed-step start" title="Galería vacía con el primer beep"><b>▶</b><small>salida</small></span>` : '';
-    host.innerHTML = `<div class="ed-panel">${head}${general}
-      <div class="ed-course-bar">
-        <div class="ed-steps" id="edPosBar">
+      <div class="ed-sec-cols">
+      ${group('Tiempo para resolver este escenario', `<div class="ed-grid">
+        ${numField('pos.time', 'Segundos', pos.time, 0.5, 60, 0.1, 's')}
+        ${numField('activatorAt', 'El popper activador cae a', pos.activatorAt, 0.5, 10, 0.1, 's')}</div>`,
+        `Cuenta desde que ves el escenario. Al acabar ${pi < n - 1 ? 'sale la flecha del siguiente desplazamiento' : 'suena el beep final'}. El popper activador es el que pone en marcha el móvil (si hay).`)}
+      ${pi < n - 1 ? group(`Siguiente desplazamiento → P${pi + 2}`, moveFields(pi + 1))
+        : group('Siguiente desplazamiento', '<p class="ed-note">Es el último escenario: al acabar su tiempo suena el beep final. Pulsa «＋ Desplazamiento» para añadir otro.</p>')}
+      </div></div>`;
+    const sec4 = sec('course', 5, 'Desplazamientos / Escenarios',
+      `${b.startMove ? '▶ ' : ''}${b.positions.map((p, i) => `${i || b.startMove ? `${DIR_ARROW[p.dir]} ` : ''}P${i + 1}${p.randomScene ? '🎲' : ''}`).join(' ')}`,
+      desc('Añade desplazamientos para cambiar de escenarios. Toca una posición (P1, P2…) para ajustarla y diseñar su escenario (sección 6).') +
+      `<div class="ed-steps" id="edPosBar">
           ${startChip}
           ${b.positions.map((p, i) => `${i || b.startMove ? `<span class="ed-step-link ${p.dir}" title="${DIR_LABEL[p.dir]}">${DIR_ARROW[p.dir]}</span>` : ''}
-            <span class="ed-step-wrap"><button class="ed-step ${p.id === selPosId ? 'active' : ''}" data-pos-id="${p.id}"><b>P${i + 1}</b><small>${(+p.time).toLocaleString('es-ES')} s${p.randomScene ? ' · 🎲' : ''}${p.port?.on ? ' · muro' : ''}${(i || b.startMove) && p.advance === 'auto' ? ' · auto' : ''}</small></button>${n > 1 ? `<button class="ed-step-del" data-pos-del="${p.id}" title="Eliminar posición ${i + 1}" aria-label="Eliminar posición ${i + 1}">✕</button>` : ''}</span>`).join('')}
-          <button class="ed-step add" data-pos="add" title="Añadir posición">＋</button>
+            <span class="ed-step-wrap"><button class="ed-step ${p.id === selPosId ? 'active' : ''}" data-pos-id="${p.id}"><b>P${i + 1}</b><small>${(+p.time).toLocaleString('es-ES')} s${p.port?.on ? ' · muro' : ''}${(i || b.startMove) && p.advance === 'auto' ? ' · auto' : ''}</small></button>
+            <button class="ed-step-rnd ${p.randomScene ? 'on' : ''}" data-pos-rnd="${p.id}" title="${p.randomScene ? 'Escenario aleatorio en cada repetición (activado)' : 'Hacer que el escenario sea aleatorio en cada repetición'}" aria-pressed="${!!p.randomScene}">🎲</button>${n > 1 ? `<button class="ed-step-del" data-pos-del="${p.id}" title="Eliminar posición ${i + 1}" aria-label="Eliminar posición ${i + 1}">✕</button>` : ''}</span>`).join('')}
+          <button class="ed-step add" data-pos="add" title="Añade un desplazamiento y un escenario nuevo">＋ Desplazamiento</button>
         </div>
         <p class="ed-note" id="edCourseInfo">${courseInfo(b)}</p>
-      </div>
-      ${workHTML(pos, 'Posición', posSettings)}
-    </div>`;
+        <p class="ed-note">🎲 en una posición = escenario aleatorio en cada repetición (generado con su «Composición» de la sección 6). ✕ la elimina.</p>
+        ${posSettings}`);
+    const sec5 = sec('scene', 6, `Escenario de la posición ${pi + 1}`,
+      `${pos.randomScene ? '🎲 Aleatorio en cada repetición' : pos.layout?.manual ? 'Diseñado a mano' : 'Generado automáticamente'}${pos.port?.on ? ' · con muro y ventana' : ''}`,
+      (pos.randomScene ? `<p class="ed-sec-desc ed-sec-desc-pad">🎲 Este escenario es aleatorio: en cada repetición se genera uno nuevo con las cantidades de «Composición». Lo que ves es solo un ejemplo.</p>` : '') + workHTML(pos));
+    host.innerHTML = `<div class="ed-panel">${head}<div class="ed-secs">${sec1}${sec2}${secC}${sec3}${sec4}${sec5}</div></div>`;
     mountPreview();
     $('#edTry').onclick = () => tryBlock(b);
   }
@@ -385,7 +446,7 @@ export function initEditor(app) {
     const parts = [];
     if (lo < 0) parts.push(`${-lo} a la izquierda`); if (hi > 0) parts.push(`${hi} a la derecha`);
     const moves = b.positions.length - (b.startMove ? 0 : 1);
-    if (!moves) return 'Una sola posición sin desplazamiento: el escenario aparece con el beep. Añade posiciones (＋) o activa «Empezar desplazándote».';
+    if (!moves) return 'Una sola posición sin desplazamiento: el escenario aparece con el beep. Añade desplazamientos (＋) o elige «Con desplazamiento» en la sección 2.';
     return `${moves} ${moves === 1 ? 'desplazamiento' : 'desplazamientos'} · te alejas como máximo ${parts.length ? parts.join(' y ') : '0'} del punto de salida${rnd ? ` (+${rnd} aleatorios, según el espacio)` : ''}. Comprueba que tienes sitio y que la cámara te ve en todo el recorrido.`;
   }
 
@@ -421,8 +482,24 @@ export function initEditor(app) {
   // ------------------------------------------------------------ cambios en los formularios
   $('#edMain').addEventListener('change', onField);
   $('#edMain').addEventListener('input', (e) => { if (e.target.matches('input[data-k="name"]')) onField(e); });
-  // al cambiar de ejercicio se vuelve a la primera pestaña
-  $('#edMain').addEventListener('click', (e) => { if (e.target.closest('.ed-bl') && !e.target.closest('[data-act]')) insTab = 'settings'; }, true);
+  $('#edBlocks').addEventListener('click', (e) => {
+    const li = e.target.closest('.ed-bl'); if (!li || !prog) return;
+    const i = prog.blocks.findIndex((b) => b.id === li.dataset.id), act = e.target.closest('[data-act]')?.dataset.act;
+    if (!act) {
+      selBlockId = li.dataset.id; selPosId = null; insTab = 'elem'; renderBlocks(); renderBlock();
+      if (window.innerWidth <= 1000) $('#edBlock').scrollIntoView({ behavior: 'smooth', block: 'start' }); // en el móvil el editor queda debajo
+      return;
+    }
+    if (act === 'up' && i > 0) [prog.blocks[i - 1], prog.blocks[i]] = [prog.blocks[i], prog.blocks[i - 1]];
+    if (act === 'down' && i < prog.blocks.length - 1) [prog.blocks[i + 1], prog.blocks[i]] = [prog.blocks[i], prog.blocks[i + 1]];
+    if (act === 'dup') { const c = clone(prog.blocks[i]); c.id = store.uid(); c.name += ' (copia)'; c.positions?.forEach((p) => (p.id = store.uid())); prog.blocks.splice(i + 1, 0, c); selBlockId = c.id; selPosId = null; }
+    if (act === 'del') {
+      if (prog.blocks.length <= 1) return;
+      if (!confirm(`¿Eliminar el ejercicio «${prog.blocks[i].name}»?`)) return;
+      prog.blocks.splice(i, 1); if (selBlockId === li.dataset.id) selBlockId = prog.blocks[Math.max(0, i - 1)]?.id || null;
+    }
+    persist(); renderBlocks(); renderBlock();
+  });
   function onField(e) {
     const el = e.target, k = el.dataset?.k, b = block();
     if (!k || !b) return;
@@ -458,41 +535,45 @@ export function initEditor(app) {
       return;
     }
     if (k === 'activatorAt') { const s = scen(); if (s) s.activatorAt = v; persist(); renderBlocks(); if (preview?.actStart != null) playActivation(); return; }
+    if (k.startsWith('cond.')) {
+      b.cond = { ...defaultCond(), ...(b.cond || {}) }; b.cond[k.slice(5)] = k === 'cond.note' ? String(v).slice(0, 60) : v;
+      persist(); renderBlocks(); renderBlock(); return;
+    }
+    if (k.startsWith('mv.')) {
+      const [, idx, f] = k.split('.'), ps = b.positions[+idx];
+      if (ps) ps[f] = v;
+      persist(); renderBlocks(); renderBlock(); return;
+    }
+    if (k === 'limitOn') { b.maxTime = v ? (b.maxTime || 30) : 0; persist(); renderBlocks(); renderBlock(); return; }
     if (k.startsWith('pos.')) { const s = scen(); if (s) s[k.slice(4)] = v; persist(); renderBlocks(); renderBlock(); return; }
     if (k.startsWith('random.')) {
       const rk = k.slice(7); b.random[rk] = v;
       persist(); renderBlocks();
-      if (rk === 'on' || rk === 'advance') renderBlock();
+      if (rk === 'on' || rk === 'advance' || rk === 'walls') renderBlock();
       return;
     }
+    if (k === 'mode') { b.random.on = v === 'random'; persist(); renderBlocks(); renderBlock(); return; }
+    if (k === 'startMove') v = v === true || v === 'true';
     b[k] = v;
     if (k === 'startMove' && v && b.positions[0]?.dir === 'none') b.positions[0].dir = 'random';
     persist(); renderBlocks();
-    if (k === 'startMove') renderBlock();
+    if (['startMove', 'reps', 'rest', 'maxTime', 'startMode', 'restAfter'].includes(k)) renderBlock();
     if ($('#edCourseInfo')) $('#edCourseInfo').textContent = courseInfo(b);
   }
 
   // clics: lista de ejercicios, posiciones del recorrido y paleta de elementos
   $('#edMain').addEventListener('click', (e) => {
-    const li = e.target.closest('.ed-bl');
-    if (li) {
-      const i = prog.blocks.findIndex((b) => b.id === li.dataset.id), act = e.target.closest('[data-act]')?.dataset.act;
-      if (!act) { selBlockId = li.dataset.id; selPosId = null; closeMenus(); renderBlocks(); renderBlock(); return; }
-      if (act === 'up' && i > 0) [prog.blocks[i - 1], prog.blocks[i]] = [prog.blocks[i], prog.blocks[i - 1]];
-      if (act === 'down' && i < prog.blocks.length - 1) [prog.blocks[i + 1], prog.blocks[i]] = [prog.blocks[i], prog.blocks[i + 1]];
-      if (act === 'dup') { const c = clone(prog.blocks[i]); c.id = store.uid(); c.name += ' (copia)'; c.positions?.forEach((p) => (p.id = store.uid())); prog.blocks.splice(i + 1, 0, c); selBlockId = c.id; selPosId = null; }
-      if (act === 'del') {
-        if (prog.blocks.length <= 1) return;
-        if (!confirm(`¿Eliminar el ejercicio «${prog.blocks[i].name}»?`)) return;
-        prog.blocks.splice(i, 1); if (selBlockId === li.dataset.id) selBlockId = prog.blocks[Math.max(0, i - 1)]?.id || null;
-      }
-      persist(); renderBlocks(); renderBlock();
-      return;
-    }
     const addb = e.target.closest('[data-addblock]')?.dataset.addblock;
     if (addb) { closeMenus(); addBlock(newExercise()); return; }
     const ins = e.target.closest('[data-ins]')?.dataset.ins;
     if (ins) { setTab(ins); return; }
+    const posRnd = e.target.closest('[data-pos-rnd]')?.dataset.posRnd;
+    if (posRnd) {
+      const bl = block(), ps = bl?.positions.find((x) => x.id === posRnd); if (!ps) return;
+      ps.randomScene = !ps.randomScene; selPosId = posRnd;
+      toast(ps.randomScene ? 'Escenario aleatorio en cada repetición' : 'Escenario fijo: se usará el que diseñes');
+      persist(); renderBlocks(); renderBlock(); return;
+    }
     const posDel = e.target.closest('[data-pos-del]')?.dataset.posDel;
     if (posDel) { selPosId = posDel; positionAction('del'); return; }
     const posBtn = e.target.closest('[data-pos-id]');
@@ -561,7 +642,7 @@ export function initEditor(app) {
     const b = block(), s = scen(); if (!b || !s || !preview) return;
     finalizeStage(preview);
     s.layout = layoutOf(preview); if (manual || s.layout.manual) s.layout.manual = true;
-    if (manual && s.randomScene) { s.randomScene = false; const v = $('[data-k="pos.randomScene"]'); if (v) v.checked = false; toast('Has ajustado el escenario a mano: se usará el mismo en todas las repeticiones'); }
+    if (manual && s.randomScene) { s.randomScene = false; renderBlock(); toast('Has ajustado el escenario a mano: se usará el mismo en todas las repeticiones'); }
     updateWarn(); persist(); renderBlocks();
   }
 
@@ -677,9 +758,9 @@ export function initEditor(app) {
       <label>${isMover ? 'Tarjeta del móvil' : 'Estilo'}<select data-st="kind">${TARGET_KINDS.map((k) => opt(k, KIND_LABEL[k], st.kind)).join('')}</select></label>
       ${st.ns ? `<label>Lado del no‑shoot<select data-st="nsSide">${opt(-1, 'Izquierda', st.ns.side)}${opt(1, 'Derecha', st.ns.side)}</select></label>` : ''}
       ${st.kind === 'ns-tilt' ? range('nsAngle', 'Inclinación del no‑shoot', st.ns.angle, -45, 45, 1, '°') : ''}
-      <label>Cobertura negra<select data-st="hard">${opt('none', 'Ninguna', h?.preset || 'none')}${Object.entries(HARD_PRESETS).map(([k, p]) => opt(k, p.label, h?.preset || 'none')).join('')}</select></label>
-      ${h ? range('hardAngle', 'Ángulo de la cobertura', Math.round(h.angle), -180, 180, 1, '°') + range('hardAmount', 'Cuánto tapa', Math.round(h.amount * 100), 5, 90, 1, '%') : ''}
-      ${h ? '<label>&nbsp;<button class="btn small" data-st="flip">↔ Invertir cobertura</button></label>' : ''}`;
+      <label>Hard cover<select data-st="hard">${opt('none', 'Ninguna', h?.preset || 'none')}${Object.entries(HARD_PRESETS).map(([k, p]) => opt(k, p.label, h?.preset || 'none')).join('')}</select></label>
+      ${h ? range('hardAngle', 'Ángulo del hard cover', Math.round(h.angle), -180, 180, 1, '°') + range('hardAmount', 'Cuánto tapa', Math.round(h.amount * 100), 5, 90, 1, '%') : ''}
+      ${h ? '<label>&nbsp;<button class="btn small" data-st="flip">↔ Invertir hard cover</button></label>' : ''}`;
   }
 
   function renderItemPanel() {
@@ -710,6 +791,7 @@ export function initEditor(app) {
         const hasMover = preview.items.some((i) => i.type === 'mover');
         title = it.mini ? 'Mini popper' : 'Popper';
         fields = `<label>Tamaño<select data-st="popMini">${opt('false', 'Normal (85 cm)', String(!!it.mini))}${opt('true', 'Mini (56 cm)', String(!!it.mini))}</select></label>
+          <label>Color<select data-st="steelColor">${Object.entries(STEEL_COLORS).map(([k, l]) => opt(k, l, it.color || 'white')).join('')}</select></label>
           <label class="switch ed-full"><input type="checkbox" data-st="activator" ${it.activator ? 'checked' : ''} ${hasMover ? '' : 'disabled'}> Activa el móvil (onda, brillo y caída)${hasMover ? '' : ' — añade antes un móvil'}</label>`;
         break;
       }
@@ -717,6 +799,10 @@ export function initEditor(app) {
         title = it.h <= 1.3 ? 'Barricada baja' : 'Muro';
         fields = range('wallW', 'Ancho', Math.round(it.w * 10) / 10, 0.4, 4, 0.1, ' m') + range('wallH', 'Alto', Math.round(it.h * 100) / 100, 0.6, 2.6, 0.05, ' m')
           + `<label>Acabado<select data-st="wallStyle">${Object.entries(WALL_STYLE_LABEL).map(([k, l]) => opt(k, l, it.style)).join('')}</select></label>`;
+        break;
+      case 'plate':
+        fields = `<label>Forma<select data-st="plateShape">${opt('round', 'Redondo', it.shape || 'round')}${opt('square', 'Cuadrado', it.shape || 'round')}</select></label>
+          <label>Color<select data-st="steelColor">${Object.entries(STEEL_COLORS).map(([k, l]) => opt(k, l, it.color || 'white')).join('')}</select></label>`;
         break;
       case 'barrel':
         fields = `<label>Color<select data-st="barrelColor">${Object.entries(BARREL_COLORS).map(([k, l]) => opt(k, l, it.color)).join('')}</select></label>`;
@@ -766,6 +852,8 @@ export function initEditor(app) {
       case 'wallW': it.w = Number(el.value); break;
       case 'wallH': it.h = Number(el.value); rerender = (it.h <= 1.3) !== (Number(el.defaultValue) <= 1.3); break;
       case 'barrelColor': it.color = el.value; break;
+      case 'steelColor': if (el.value === 'white') delete it.color; else it.color = el.value; break;
+      case 'plateShape': if (el.value === 'round') delete it.shape; else it.shape = el.value; break;
       case 'tiresN': it.n = Number(el.value); break;
       default: return;
     }

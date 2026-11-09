@@ -1,15 +1,15 @@
 // Entrenamiento en seco: reproductor de entrenamientos.
 //
-// · Arena libre (un único ejercicio de desplazamientos) o entrenamientos creados en el Editor.
+// · Entrenamiento rápido (escenarios aleatorios con desplazamientos) o entrenamientos creados en el Editor.
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage } from './course.js?v=20261109-1754';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-1754';
-import { Analyzer } from './pose.js?v=20261109-1754';
-import { beep, audioCtx } from './timer.js?v=20261109-1754';
-import * as store from './storage.js?v=20261109-1754';
-import { blockSummary, programDuration, fmtDuration, migrateProgram } from './program.js?v=20261109-1754';
+import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261109-2144';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-2144';
+import { Analyzer } from './pose.js?v=20261109-2144';
+import { beep, audioCtx } from './timer.js?v=20261109-2144';
+import * as store from './storage.js?v=20261109-2144';
+import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, CHALLENGES, autoRounds, levelName, LEVELS, stageBaseTime, roundTime, condText, defaultCond, defaultRandom } from './program.js?v=20261109-2144';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -68,18 +68,42 @@ export function initDryFire(app) {
   let an = null, stream = null, run = null, lastPose = null;
   const keyHeld = { left: false, right: false };
   const timers = [];
-  const view = { stage: randomStage(Date.now(), { activators: 'never' }), big: 'ARENA EN SECO', sub: 'Elige un entrenamiento y pulsa «Empezar»' };
+  const view = { stage: randomStage(Date.now(), { activators: 'never' }), big: 'ENTRENAMIENTO EN SECO', sub: 'Elige un entrenamiento y pulsa «Empezar»' };
 
   // ---------------- selección de entrenamiento ----------------
   const progSel = $('#dryProgram');
+  // «Repetir mismo escenario»: un escenario fijo y rondas con condiciones; el tiempo depende del nivel
+  let chCache = null;
+  const fmtS1 = (v) => String(v).replace('.', ',');
+  function challengeProgram() {
+    const d = P(), ch = CHALLENGES.find((c) => c.id === d.challenge) || CHALLENGES[0];
+    const level = d.chLevels?.[ch.id] ?? 1, reps = d.chReps || 5, key = `${ch.id}|${level}|${reps}`;
+    if (chCache?.key === key) return chCache.prog;
+    const r = Math.random;
+    const comp = { paper: 2 + Math.floor(r() * 2), poppers: 1 + Math.floor(r() * 2), plates: Math.floor(r() * 3), mover: 'none', popSize: 'mixed', dist: 'mid', styleRandom: true, hard: 0 };
+    const stage = composeStage(comp, (Date.now() ^ Math.floor(r() * 1e9)) >>> 0);
+    const layout = layoutOf(stage), base = stageBaseTime(stage);
+    const rounds = ch.rounds || autoRounds();
+    const blocks = rounds.map((rd, i) => {
+      const cond = { ...defaultCond(), hand: rd.hand || 'free', start: rd.start || 'holster', reload: !!rd.reload };
+      return { id: `r${i}`, type: 'course', name: `Ronda ${i + 1} de ${rounds.length}`, tight: rd.tight || 1, cond,
+        positions: [{ id: `p${i}`, dir: 'none', time: roundTime(base, cond, rd.tight || 1, level), advance: 'auto', moveDelay: 1, activatorAt: 1, comp, layout, port: null, randomScene: false }],
+        reps, rest: 6, startMode: 'random', restAfter: 12, startMove: false, maxTime: 0, random: defaultRandom() };
+    });
+    const prog = { quick: true, name: ch.name, challenge: { id: ch.id, level, startLevel: level, base, ratings: [] }, blocks };
+    chCache = { key, prog };
+    return prog;
+  }
+  const roundLabel = (b) => `${condText(b.cond) || 'Dos manos, desde la funda'} · ${fmtS1(b.positions[0].time)} s`;
   function freeProgram() {
     const d = P();
-    return { free: true, name: 'Arena libre', blocks: [{ type: 'course', name: 'Arena libre', positions: [], reps: 1, rest: 0, startMode: 'fixed', restAfter: 0, startMove: false, maxTime: 0,
-      random: { on: true, count: d.moves ? d.moves + 1 : 0, time: d.delay ?? 1, activators: d.activators || 'sometimes', advance: d.advance || 'camera', moveDelay: d.moveDelay ?? 1 } }] };
+    if (d.quickStyle === 'repeat') return challengeProgram();
+    return { free: true, name: 'Entrenamiento rápido', blocks: [{ type: 'course', name: 'Entrenamiento rápido', positions: [], reps: 1, rest: 0, startMode: 'fixed', restAfter: 0, startMove: false, maxTime: 0,
+      random: { on: true, count: d.moves ? d.moves + 1 : 0, time: d.delay ?? 1, activators: d.activators || 'sometimes', advance: d.advance || 'camera', moveDelay: d.moveDelay ?? 1, walls: d.walls ?? true, portDelay: d.portDelay ?? 0 } }] };
   }
   function fillPrograms(selectId) {
     const list = store.loadPrograms(), cur = selectId ?? progSel.value;
-    progSel.innerHTML = '<option value="">Arena libre (ajustes de abajo)</option>' + list.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+    progSel.innerHTML = '<option value="">Entrenamiento rápido</option>' + list.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
     progSel.value = list.some((p) => p.id === cur) ? cur : '';
     describe();
   }
@@ -88,31 +112,215 @@ export function initDryFire(app) {
     const found = id && store.loadPrograms().find((p) => p.id === id);
     return found ? migrateProgram(structuredClone(found)) : freeProgram();
   }
+  // ¿qué necesita detectar del cuerpo este entrenamiento? (desplazarse / agacharse)
+  const camMove = (b) => (b.type === 'arena' && b.advance !== 'auto') || (b.type === 'stage' && b.withMove)
+    || (b.type === 'course' && (b.random?.on ? b.random.advance !== 'auto'
+      : (b.positions || []).some((ps, i) => (i > 0 || b.startMove) && ps.advance !== 'auto')));
+  const camPort = (b) => [b, ...(b.positions || [])].some((sc) => sc.port?.on && sc.port.open !== 'auto');
+  const bodyNeeds = (program) => program.blocks.some((b) => camMove(b) || camPort(b));
+  const modeOf = () => (progSel.value ? 'program' : P().quickStyle === 'repeat' ? 'repeat' : 'moves');
+
+  // ---------------- pantallas: elegir entrenamiento · sesión ----------------
+  const pickScreen = $('#dryPickScreen'), session = $('#drySession');
+  function showPicker() {
+    if (run && run.phase !== 'done') stop('DETENIDO');
+    renderPick();
+    pickScreen.classList.remove('hidden'); session.classList.add('hidden');
+    window.scrollTo({ top: 0 });
+  }
+  function showSession() {
+    pickScreen.classList.add('hidden'); session.classList.remove('hidden');
+    renderSettings(); describe(); scene.checkSize(true);
+  }
+  const svgI = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const ICONS = {
+    moves: svgI('<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/>'),
+    repeat: svgI('<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>'),
+    program: svgI('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/>'),
+    plus: svgI('<path d="M12 5v14M5 12h14"/>'),
+    cam: svgI('<path d="M4 7h3l1.6-2h6.8L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.6"/>'),
+    target: svgI('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/>'),
+    trophy: svgI('<path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8"/>'),
+    sound: svgI('<path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16 9a4 4 0 0 1 0 6"/>'),
+    sliders: svgI('<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>'),
+  };
+  function renderPick() {
+    const list = store.loadPrograms();
+    $('#dryPickCount').textContent = list.length ? `Entrenamiento rápido o uno de tus ${list.length} ${list.length === 1 ? 'entrenamiento' : 'entrenamientos'}` : 'Empieza con un entrenamiento rápido o crea el tuyo en el Editor';
+    $('#dryPickGrid').innerHTML = `
+      <div class="pick-h"><span>⚡</span>Entrenamiento rápido<small>sin preparar nada</small></div>
+      <div class="pick-quick">
+      <button class="pick-card featured" data-pick="" data-quick="moves">
+        <span class="pick-ic" aria-hidden="true">${ICONS.moves}</span>
+        <span class="pick-txt"><small class="pick-tag">Entrenamiento rápido</small><b>Varios escenarios con desplazamientos</b>
+          <small>Escenarios aleatorios al instante. Sale el escenario, suena el beep y una flecha te indica hacia dónde desplazarte; a veces, tras un muro con ventana.</small></span>
+        <span class="pick-go">Elegir →</span>
+      </button>
+      <button class="pick-card featured alt" data-pick="" data-quick="repeat">
+        <span class="pick-ic" aria-hidden="true">${ICONS.repeat}</span>
+        <span class="pick-txt"><small class="pick-tag">Entrenamiento rápido · retos</small><b>Repetir mismo escenario</b>
+          <small>Sin desplazamientos: rondas con condiciones (mano débil, arma descargada, recarga…) y tiempo límite. La dificultad se adapta a ti ronda a ronda.</small></span>
+        <span class="pick-go">Elegir →</span>
+      </button>
+      </div>
+      <div class="pick-h"><span>☰</span>Mis entrenamientos<small>${list.length ? `${list.length} creados en el Editor` : 'aún no tienes ninguno'}</small></div>
+      <div class="pick-grid">
+      ${list.map((p) => {
+        const n = p.blocks.length;
+        return `<button class="pick-card" data-pick="${p.id}">
+          <span class="pick-ic" aria-hidden="true">${ICONS.program}</span>
+          <span class="pick-txt"><small class="pick-tag mine">Mi entrenamiento</small><b>${esc(p.name)}</b>
+            <small>${n} ${n === 1 ? 'ejercicio' : 'ejercicios'} · ≈ ${fmtDuration(programDuration(p))}</small>
+            <span class="pick-ex">${p.blocks.slice(0, 3).map((b, i) => `<i>${i + 1}. ${esc(b.name)}</i>`).join('')}${n > 3 ? `<i>+${n - 3} más</i>` : ''}</span></span>
+          <span class="pick-go">Elegir →</span>
+        </button>`;
+      }).join('')}
+      <button class="pick-card add" data-newtrain="1">
+        <span class="pick-ic" aria-hidden="true">${ICONS.plus}</span>
+        <span class="pick-txt"><b>Crear un entrenamiento</b><small>Diseña tus propios ejercicios, escenarios y desplazamientos en el Editor.</small></span>
+      </button>
+      </div>`;
+  }
+  $('#dryPickGrid').addEventListener('click', (e) => {
+    if (e.target.closest('[data-newtrain]')) { app.newTraining?.(); return; }
+    const c = e.target.closest('[data-pick]'); if (!c) return;
+    select(c.dataset.pick || null, c.dataset.quick);
+  });
+  $('#dryBack').onclick = showPicker;
+  function select(id, quick) {
+    if (quick) { P().quickStyle = quick; saveProfile(); chCache = null; }
+    fillPrograms(id || '');
+    showSession();
+  }
+
+  // ---------------- barra del modo (arriba) y detalles (debajo del escenario) ----------------
+  let idleProg = null;
   function describe() {
-    const p = selectedProgram();
-    $('#dryArenaSet').classList.toggle('hidden', !p.free);
-    if (p.free) {
-      $('#dryDesc').textContent = 'Aparece el escenario, suena el beep y al segundo se indica arriba hacia dónde moverte. En cuanto te desplazas a ese lado, cambia al siguiente escenario.';
+    const p = selectedProgram(), mode = p.challenge ? 'repeat' : p.free ? 'moves' : 'program';
+    idleProg = p; hudT = 0;
+    if (!run || run.phase === 'done') {
+      // antes de empezar se ve el escenario que toca (en los retos, el que se va a repetir)
+      const first = p.blocks[0]?.positions?.[0];
+      if (mode !== 'moves' && first?.layout) view.stage = stageFromLayout(first.layout);
+      if (!run) Object.assign(view, { big: mode === 'repeat' ? 'RETO' : mode === 'program' ? 'MI ENTRENAMIENTO' : 'ENTRENAMIENTO EN SECO', sub: 'Pulsa «▶ Empezar» cuando estés listo', bigColor: '#d4ff3a', port: null, transition: null, arrow: null });
+    }
+    $('#dryModeIc').innerHTML = ICONS[mode];
+    session.dataset.mode = mode;
+    $('#dryEdit').classList.toggle('hidden', mode !== 'program');
+    let how = [];
+    if (mode === 'repeat') {
+      const ch = CHALLENGES.find((c) => c.id === p.challenge.id), L = p.challenge.level, best = P().chBest?.[p.challenge.id];
+      $('#dryModeKicker').textContent = 'Entrenamiento rápido · Repetir mismo escenario';
+      $('#dryModeTitle').innerHTML = `${esc(ch.name)} <span class="dry-lv">NIVEL ${L} · ${levelName(L).toUpperCase()}</span>`;
+      $('#dryDesc').textContent = `${ch.desc} ${p.blocks.length} rondas de ${p.blocks[0].reps} repeticiones con el mismo escenario${best ? ` · tu mejor marca: nivel ${best}` : ''}.`;
+      $('#dryBlocks').innerHTML = p.blocks.map((b) => `<li><b>${esc(b.name)} · ${b.reps}×</b><span>${esc(condText(b.cond) || 'Dos manos, desde la funda')}</span><em>${fmtS1(b.positions[0].time)} s</em></li>`).join('');
+      how = ['Colócate frente a la pantalla con el arma enfundada (o como indique la condición). <b>Arma descargada y sin munición en la sala.</b>',
+        'Antes de cada ronda verás sus condiciones; también abajo en pantalla mientras tiras.',
+        'Cada repetición: «PREPARADO», beep aleatorio, tiempo límite (barra arriba) y beep final.',
+        'Al acabar cada ronda indica qué tal te ha ido (toca un botón o teclas 1–4): la app ajusta el tiempo de la siguiente.'];
+    } else if (mode === 'moves') {
+      const d = P();
+      $('#dryModeKicker').textContent = 'Entrenamiento rápido';
+      $('#dryModeTitle').textContent = 'Varios escenarios con desplazamientos';
+      $('#dryDesc').textContent = `Escenarios aleatorios${d.walls ? ', algunos tras un muro con ventana' : ''}. ${d.moves ? `${d.moves} desplazamientos` : 'Desplazamientos sin fin'} · flecha a los ${fmtS1(d.delay)} s · ${d.advance === 'auto' ? 'cambio automático, sin cámara' : d.camera ? 'detección con cámara' : 'con el teclado'}.`;
       $('#dryBlocks').innerHTML = '';
+      how = d.advance === 'auto'
+        ? ['Pulsa «Empezar». Sale el escenario y suena el beep: resuélvelo en seco.', 'Sale una flecha y el escenario cambia solo a los segundos indicados.', 'Los muros con ventana se abren solos: la ventana se acerca hasta enmarcar el escenario.']
+        : ['Coloca la cámara a 3–4 m, a la altura del pecho, y sal de cuerpo entero. <b>Arma descargada y sin munición en la sala.</b>',
+          'Pulsa «Empezar» y quédate quieto en el centro mientras te calibra.', 'Sale el escenario y suena el beep. Al poco aparece una flecha: desplázate a ese lado y cambia el escenario.',
+          'Si aparece un muro con ventana, agáchate para ver el escenario.', d.camera ? 'Sin cámara a mano: cambia la detección a «Teclado» (← → para desplazarte, ↓ para agacharte).' : 'Teclado: mantén ← o → para desplazarte y ↓ para agacharte.'];
     } else {
+      $('#dryModeKicker').textContent = 'Mi entrenamiento';
+      $('#dryModeTitle').textContent = p.name;
       $('#dryDesc').textContent = `${p.blocks.length} ${p.blocks.length === 1 ? 'ejercicio' : 'ejercicios'} · duración aproximada ${fmtDuration(programDuration(p))}${p.notes ? ' · ' + p.notes : ''}`;
       $('#dryBlocks').innerHTML = p.blocks.map((b, i) => `<li><b>${i + 1}. ${esc(b.name)}</b><span>${esc(blockSummary(b))}</span></li>`).join('');
+      how = ['En cada repetición suena el beep inicial, corre el tiempo (barra arriba) y suena el beep final.', 'Entre repeticiones hay un descanso con cuenta atrás; los últimos segundos avisan «PREPARADO».',
+        bodyNeeds(p) ? 'Este entrenamiento tiene desplazamientos o muros que se activan con el cuerpo: usa la cámara o el teclado.' : 'No necesita cámara: todo es automático.'];
     }
+    $('#dryHowList').innerHTML = how.map((t) => `<li>${t}</li>`).join('');
   }
-  progSel.onchange = describe;
+  progSel.onchange = () => { describe(); renderSettings(); };
   $('#dryEdit').onclick = () => app.openEditor?.(progSel.value || null);
 
-  // ---------------- ajustes ----------------
-  const binds = { dryCamMode: 'camera', dryMove: 'moveFactor', dryRange: 'range', dryDelay: 'delay', dryMoves: 'moves', dryAct: 'activators', dryVoice: 'voice', dryAdvance: 'advance', dryMoveDelay: 'moveDelay' };
-  function loadSettings() {
-    const d = P();
-    for (const [id, k] of Object.entries(binds)) { const el = $(`#${id}`); if (el.type === 'checkbox') el.checked = !!d[k]; else el.value = String(d[k]); }
+  // ---------------- ajustes de cada modo ----------------
+  const gsec = (icon, title, body, cls = '') => `<section class="gx-sec ${cls}"><h4><span class="gx-ic">${ICONS[icon]}</span>${title}</h4>${body}</section>`;
+  const gseg = (key, val, opts) => `<div class="gx-seg" data-set="${key}" role="radiogroup">${opts.map(([v, l]) => `<button type="button" role="radio" aria-checked="${String(v) === String(val)}" class="${String(v) === String(val) ? 'on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
+  const gtog = (key, on, label, desc = '') => `<button type="button" class="gx-tog ${on ? 'on' : ''}" data-toggle="${key}" role="switch" aria-checked="${!!on}"><span class="gx-tog-txt"><b>${label}</b>${desc ? `<small>${desc}</small>` : ''}</span><i></i></button>`;
+  const gstep = (key, val, min, max, step, fmt) => `<div class="gx-step" data-step="${key}" data-min="${min}" data-max="${max}" data-st="${step}"><button type="button" data-d="-1" ${val <= min ? 'disabled' : ''} aria-label="Menos">−</button><b>${fmt(val)}</b><button type="button" data-d="1" ${val >= max ? 'disabled' : ''} aria-label="Más">+</button></div>`;
+  const grow = (label, ctl, hint = '') => `<div class="gx-row"><span class="gx-lbl">${label}</span>${ctl}${hint ? `<small class="gx-hint">${hint}</small>` : ''}</div>`;
+  const secs = (v) => `${fmtS1(v)} s`;
+  function detectionSec(withAuto) {
+    const d = P(), det = withAuto && d.advance === 'auto' ? 'auto' : d.camera ? 'camera' : 'keys';
+    const opts = [['camera', '📷 Cámara'], ['keys', '⌨ Teclado']]; if (withAuto) opts.push(['auto', '⏱ Automático']);
+    const hint = det === 'auto' ? 'Sin cámara: el escenario cambia solo y las ventanas se abren solas.'
+      : det === 'camera' ? 'La cámara detecta cuándo te desplazas y cuándo te agachas.' : 'Mantén ← o → para desplazarte y ↓ para agacharte.';
+    let body = gseg('detect', det, opts) + `<small class="gx-hint">${hint}</small>`;
+    if (det === 'camera') body += grow('Desplazamiento necesario', gseg('moveFactor', d.moveFactor, [[1, 'Corto'], [2, 'Medio'], [3, 'Largo']]));
+    if (det !== 'auto') body += grow('Espacio a cada lado', gseg('range', d.range, [[1, '1 paso'], [2, '2 pasos'], [0, 'Libre']]), 'Para que la flecha no te saque de tu zona.');
+    if (det === 'auto') {
+      body += grow('Cambio de escenario', gstep('moveDelay', d.moveDelay ?? 1, 0.5, 3, 0.5, (v) => `${fmtS1(v)} s tras la flecha`));
+      if (d.walls) body += grow('Ventana del muro', gstep('portDelay', d.portDelay ?? 0, 0, 3, 0.5, (v) => (v ? `se abre a los ${fmtS1(v)} s` : 'al aparecer')));
+    }
+    return gsec('cam', 'Detección', body);
   }
-  for (const [id, k] of Object.entries(binds)) $(`#${id}`).onchange = (e) => {
-    const el = e.target;
-    P()[k] = el.type === 'checkbox' ? el.checked : k === 'camera' ? el.value === 'true' : k === 'activators' || k === 'advance' ? el.value : +el.value;
-    saveProfile(); describe();
-  };
+  function renderSettings() {
+    const d = P(), mode = modeOf();
+    let html = `<div class="gx-head"><span>Ajustes</span><em>${mode === 'repeat' ? 'Reto' : mode === 'moves' ? 'Rápido' : 'Mi entrenamiento'}</em></div>`;
+    if (mode === 'moves') {
+      html += detectionSec(true);
+      html += gsec('target', 'Escenarios',
+        grow('Desplazamientos', gseg('moves', d.moves, [[10, '10'], [20, '20'], [40, '40'], [0, '∞']]))
+        + grow('Flecha a los', gstep('delay', d.delay, 0.5, 3, 0.5, secs))
+        + grow('Poppers activadores', gseg('activators', d.activators, [['never', 'Nunca'], ['sometimes', 'A veces'], ['always', 'Siempre']]))
+        + gtog('walls', d.walls, 'Muros con ventana', 'Algunos escenarios empiezan tras un muro: agáchate para verlos.'));
+      html += gsec('sound', 'Avisos', gtog('voice', d.voice, 'Dirección por voz', 'Dice «izquierda» o «derecha» al salir la flecha.'));
+    } else if (mode === 'repeat') {
+      const cur = CHALLENGES.find((c) => c.id === d.challenge) || CHALLENGES[0], L = d.chLevels?.[cur.id] ?? 1, best = d.chBest?.[cur.id];
+      html += gsec('trophy', 'Reto', `<div class="gx-chs">${CHALLENGES.map((c) => {
+        const lv = d.chLevels?.[c.id], bs = d.chBest?.[c.id];
+        return `<button type="button" class="gx-ch ${c.id === cur.id ? 'on' : ''}" data-ch="${c.id}"><span><b>${esc(c.name)}</b><small>${esc(c.desc)}</small></span><em>${lv ? `NV ${lv}` : 'NUEVO'}${bs ? `<i>★ ${bs}</i>` : ''}</em></button>`;
+      }).join('')}</div>`);
+      html += gsec('sliders', 'Nivel',
+        `<div class="gx-level"><div class="gx-meter">${Array.from({ length: LEVELS }, (_, i) => `<i class="${i < L ? 'on' : ''} ${best && i === best - 1 ? 'best' : ''}" style="--k:${i / (LEVELS - 1)}"></i>`).join('')}</div>
+          <div class="gx-level-txt"><b>${L}</b><span>${levelName(L)}${best ? ` · mejor ★ ${best}` : ''}</span></div></div>
+        <small class="gx-hint">Empiezas fácil. Tras cada ronda dices qué tal te ha ido y el nivel (el tiempo) se ajusta solo.</small>
+        <button type="button" class="btn small gx-reset" id="dryChReset">↺ Volver a nivel 1</button>`);
+      html += gsec('repeat', 'Rondas', grow('Repeticiones por ronda', gseg('chReps', d.chReps || 5, [[3, '3'], [5, '5'], [8, '8']]))
+        + '<small class="gx-hint">Sin desplazamientos ni cámara: el mismo escenario en todas las rondas.</small>');
+    } else {
+      const p = selectedProgram();
+      if (bodyNeeds(p)) html += detectionSec(false) + gsec('sound', 'Avisos', gtog('voice', d.voice, 'Dirección por voz', 'Dice «izquierda» o «derecha» al salir la flecha.'));
+      else html += gsec('cam', 'Detección', '<div class="gx-note">✓ Este entrenamiento no necesita cámara: todo es automático.</div>');
+      html += gsec('program', 'Entrenamiento', `<div class="gx-note">${p.blocks.length} ${p.blocks.length === 1 ? 'ejercicio' : 'ejercicios'} · ≈ ${fmtDuration(programDuration(p))}</div>
+        <small class="gx-hint">Tiempos, repeticiones y condiciones se ajustan en el Editor.</small>`);
+    }
+    $('#drySettings').innerHTML = html;
+  }
+  function setPref(k, v) {
+    const d = P();
+    if (k === 'detect') { if (v === 'auto') d.advance = 'auto'; else { d.advance = 'camera'; d.camera = v === 'camera'; } }
+    else d[k] = v;
+    saveProfile();
+    if (['challenge', 'chReps'].includes(k)) chCache = null;
+    renderSettings(); describe();
+  }
+  $('#drySettings').addEventListener('click', (e) => {
+    const t = e.target;
+    const segBtn = t.closest('.gx-seg [data-v]');
+    if (segBtn) { const k = segBtn.parentElement.dataset.set, raw = segBtn.dataset.v; setPref(k, ['detect', 'activators'].includes(k) ? raw : Number(raw)); return; }
+    const tog = t.closest('[data-toggle]'); if (tog) { setPref(tog.dataset.toggle, !P()[tog.dataset.toggle]); return; }
+    const stepBtn = t.closest('.gx-step [data-d]');
+    if (stepBtn) {
+      const box = stepBtn.parentElement, k = box.dataset.step, st = +box.dataset.st;
+      const v = Math.min(+box.dataset.max, Math.max(+box.dataset.min, Math.round(((P()[k] ?? 0) + st * +stepBtn.dataset.d) * 100) / 100));
+      setPref(k, v); return;
+    }
+    const ch = t.closest('[data-ch]'); if (ch) { setPref('challenge', ch.dataset.ch); return; }
+    if (t.closest('#dryChReset')) {
+      const d = P(); d.chLevels = { ...(d.chLevels || {}), [d.challenge]: 1 }; saveProfile(); chCache = null; renderSettings(); describe();
+      toast('Este reto vuelve a empezar en nivel 1');
+    }
+  });
 
   // ---------------- teclado (modo sin cámara) ----------------
   const tabActive = () => $('#tab-dry').classList.contains('active');
@@ -121,6 +329,7 @@ export function initDryFire(app) {
     if (e.key === 'ArrowLeft') { keyHeld.left = true; e.preventDefault(); }
     if (e.key === 'ArrowRight') { keyHeld.right = true; e.preventDefault(); }
     if (e.key === 'ArrowDown') { keyHeld.down = true; e.preventDefault(); }
+    if (run?.phase === 'rate' && ['1', '2', '3', '4'].includes(e.key)) { rate([2, 1, 0, -1][Number(e.key) - 1]); e.preventDefault(); return; }
     if (e.key === 'Escape') { if (stageBox.classList.contains('immersive')) { exitFull(); return; } if (run) stop('DETENIDO'); }
   });
   window.addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft') keyHeld.left = false; if (e.key === 'ArrowRight') keyHeld.right = false; if (e.key === 'ArrowDown') keyHeld.down = false; });
@@ -242,11 +451,7 @@ export function initDryFire(app) {
     if (!program?.blocks?.length) { toast('Este entrenamiento no tiene ejercicios'); return; }
     audioCtx();
     // la cámara solo hace falta si algún desplazamiento o muro con ventana se activa con el cuerpo
-    const camMove = (b) => (b.type === 'arena' && b.advance !== 'auto') || (b.type === 'stage' && b.withMove)
-      || (b.type === 'course' && (b.random?.on ? b.random.advance !== 'auto'
-        : (b.positions || []).some((ps, i) => (i > 0 || b.startMove) && ps.advance !== 'auto')));
-    const camPort = (b) => [b, ...(b.positions || [])].some((sc) => sc.port?.on && sc.port.open !== 'auto');
-    const needsMove = program.blocks.some((b) => camMove(b) || camPort(b));
+    const needsMove = bodyNeeds(program);
     if (needsMove && P().camera && !(await ensureCamera())) return;
     clearTimers();
     run = {
@@ -261,6 +466,8 @@ export function initDryFire(app) {
   function stop(text) {
     if (!run) return;
     clearTimers(); run.phase = 'done'; run.endAt = performance.now();
+    $('#dryRate').classList.add('hidden'); view.cond = null;
+    if (run.program.challenge) chCache = null;
     Object.assign(view, { arrow: null, transition: null, warn: null, timer: null, dim: 0, big: text, sub: '', bigColor: '#d4ff3a', port: null, portHint: false });
     $('#dryStart').textContent = '▶ Empezar';
   }
@@ -274,6 +481,7 @@ export function initDryFire(app) {
   // deja listo (y visible) el primer escenario del ejercicio actual
   function prepareBlock(now) {
     const b = blk();
+    view.cond = condText(b.cond) || null;
     run.rep = 0; run.moves = 0; view.port = null; view.portHint = false;
     if (b.type === 'arena') {
       run.stage = randomStage(Date.now(), { activators: b.activators, prevTheme: run.stage?.theme ?? -1 });
@@ -294,7 +502,7 @@ export function initDryFire(app) {
   function goStandby(now, next) {
     run.afterStandby = next;
     run.standbyUntil = now + 1500 + Math.random() * 1300;
-    Object.assign(view, { big: 'PREPARADO', sub: 'Espera el beep', bigColor: '#d4ff3a', dim: 0 });
+    Object.assign(view, { big: 'PREPARADO', sub: `Espera el beep${view.cond ? ` · ${view.cond}` : ''}`, bigColor: '#d4ff3a', dim: 0 });
     setPhase('standby', now);
   }
 
@@ -322,7 +530,8 @@ export function initDryFire(app) {
   }
   function addRandomPos(b) {
     const R = b.random, prev = run.posStages[run.posStages.length - 1];
-    run.posList.push({ dir: 'random', time: R.time, advance: R.advance, moveDelay: R.moveDelay, activatorAt: 1, port: null });
+    const port = R.walls && run.posStages.length && Math.random() < WALL_RATE ? randomPort(R.advance, R.portDelay ?? 0) : null; // nunca en el primero
+    run.posList.push({ dir: 'random', time: R.time, advance: R.advance, moveDelay: R.moveDelay, activatorAt: 1, port });
     run.posStages.push(randomStage((Date.now() + run.posStages.length * 7919) >>> 0, { activators: R.activators, prevTheme: prev?.theme ?? -1 }));
   }
   function startCourseRep(now) {
@@ -388,8 +597,8 @@ export function initDryFire(app) {
       if (!open) return true;
       run.portStart = now; sfx.tick(520, 0.08);
     }
-    const k = clamp((now - run.portStart) / 450, 0, 1);
-    view.port.p = 1 - Math.pow(1 - k, 3);
+    const k = clamp((now - run.portStart) / (cfg.open === 'auto' ? 1100 : 700), 0, 1);
+    view.port.p = k; // el marco se queda en pantalla con el escenario (sin «pop»)
     if (k < 1) return true;
     run.portDone = true; return 'opened';
   }
@@ -442,7 +651,33 @@ export function initDryFire(app) {
     } else endBlock(now);
   }
 
+  function askRating(now) {
+    const b = blk(), ch = run.program.challenge;
+    setPhase('rate', now);
+    Object.assign(view, { big: null, sub: null, timer: null, dim: 0.55 });
+    $('#dryRateSub').textContent = `${b.name} · ${roundLabel(b)} · nivel ${ch.level} (${levelName(ch.level)})`;
+    $('#dryRate').classList.remove('hidden');
+  }
+  function rate(delta) {
+    if (run?.phase !== 'rate') return;
+    const ch = run.program.challenge, played = ch.level, d = P();
+    ch.ratings.push(delta);
+    ch.level = Math.min(LEVELS, Math.max(1, played + delta));
+    d.chLevels = { ...(d.chLevels || {}), [ch.id]: ch.level };
+    if (delta >= 0) d.chBest = { ...(d.chBest || {}), [ch.id]: Math.max(d.chBest?.[ch.id] || 0, played) };
+    saveProfile(); chCache = null;
+    // las rondas que quedan se ajustan al nuevo nivel
+    run.program.blocks.forEach((bk, k) => { if (k > run.bi) bk.positions[0].time = roundTime(ch.base, bk.cond, bk.tight, ch.level); });
+    $('#dryRate').classList.add('hidden');
+    run.ratedBi = run.bi; view.dim = 0;
+    const nx = run.program.blocks[run.bi + 1];
+    toast(nx ? `Siguiente ronda en nivel ${ch.level} (${levelName(ch.level)}): ${fmtS1(nx.positions[0].time)} s` : `La próxima vez empezarás en nivel ${ch.level} (${levelName(ch.level)})`, 3800);
+    endBlock(performance.now());
+  }
+  $('#dryRate').addEventListener('click', (e) => { const r = e.target.closest('[data-rate]'); if (r) rate(Number(r.dataset.rate)); });
+
   function endBlock(now) {
+    if (run.program.challenge && run.ratedBi !== run.bi) { askRating(now); return; }
     const prog = run.program;
     if (run.bi + 1 < prog.blocks.length) {
       const restAfter = blk().restAfter ?? 10; // descanso tras el ejercicio que acaba de terminar
@@ -527,6 +762,7 @@ export function initDryFire(app) {
       const st = run.posStages?.[Math.max(0, run.posIdx ?? 0)] || run.stage;
       return run.startAt && st ? `ESCENARIO ${String(Math.max(0, run.posIdx ?? 0) + 1).padStart(2, '0')} · ${THEMES[st.theme].name.toUpperCase()}` : null;
     }
+    if (prog.challenge) return `RONDA ${run.bi + 1}/${prog.blocks.length} · REP ${Math.min(run.rep + 1, b.reps)}/${b.reps} · NIVEL ${prog.challenge.level} · ${fmtS1(b.positions[0].time)} s`;
     let s = `EJ. ${run.bi + 1}/${prog.blocks.length} · ${b.name.toUpperCase()}`;
     if (b.type === 'stage') s += ` · REP ${run.rep + 1}/${b.reps}`;
     else if (b.type === 'course') s += ` · REP ${run.rep + 1}/${b.reps} · POS ${Math.max(0, run.posIdx) + 1}/${b.random?.on && !b.random.count ? '∞' : run.posList?.length ?? b.positions.length}`;
@@ -648,13 +884,13 @@ export function initDryFire(app) {
         return;
 
       case 'rest':
-        if (countdown(now, run.restUntil, `DESCANSO · siguiente: repetición ${run.rep + 1} de ${b.reps}`)) {
+        if (countdown(now, run.restUntil, `DESCANSO · siguiente: repetición ${run.rep + 1} de ${b.reps}${view.cond ? ` · ${view.cond}` : ''}`)) {
           view.dim = 0;
           if (b.startMode === 'random') goStandby(now, 'rep'); else if (b.type === 'course') startCourseRep(now); else startRep(now);
         }
         return;
       case 'between':
-        if (countdown(now, run.betweenUntil, `SIGUIENTE: ${b.name} · ${blockSummary(b)}`)) goStandby(now, 'block');
+        if (countdown(now, run.betweenUntil, `SIGUIENTE: ${b.name} · ${run.program.challenge ? roundLabel(b) : blockSummary(b)}`)) goStandby(now, 'block');
         return;
     }
   }
@@ -662,7 +898,10 @@ export function initDryFire(app) {
   function intro(now) {
     if (run.program.free) return goStandby(now, 'block');
     const b = blk();
-    Object.assign(view, { big: run.program.name, sub: `Ejercicio 1 de ${run.program.blocks.length}: ${b.name} · ${blockSummary(b)}`, bigColor: '#d4ff3a' });
+    const ch = run.program.challenge;
+    Object.assign(view, { big: run.program.name, bigColor: '#d4ff3a', sub: ch
+      ? `Nivel ${ch.level} · ${levelName(ch.level)} · ${run.program.blocks.length} rondas de ${b.reps} repeticiones con el mismo escenario`
+      : `Ejercicio 1 de ${run.program.blocks.length}: ${b.name} · ${blockSummary(b)}` });
     run.introUntil = now + 2800;
     setPhase('intro', now);
   }
@@ -671,12 +910,20 @@ export function initDryFire(app) {
     run.phase = 'done'; run.endAt = now;
     const total = (now - (run.startAt ?? now)) / 1000;
     const parts = [];
-    if (!run.program.free) parts.push(`${run.program.blocks.length} ${run.program.blocks.length === 1 ? 'ejercicio' : 'ejercicios'}`);
+    if (!run.program.free) parts.push(`${run.program.blocks.length} ${run.program.challenge ? 'rondas' : run.program.blocks.length === 1 ? 'ejercicio' : 'ejercicios'}`);
     if (run.repsDone) parts.push(`${run.repsDone} repeticiones`);
     if (run.totalMoves) parts.push(`${run.totalMoves} desplazamientos`);
     parts.push(`${total.toFixed(1)} s`);
     if (run.moveTimes.length) parts.push(`reacción media ${(run.moveTimes.reduce((a, b) => a + b, 0) / run.moveTimes.length).toFixed(2)} s`);
-    Object.assign(view, { arrow: null, timer: null, dim: 0, big: run.program.free ? 'COMPLETADO' : 'ENTRENAMIENTO COMPLETADO', bigColor: '#d4ff3a', sub: parts.join(' · ') });
+    const ch = run.program.challenge;
+    if (ch) {
+      chCache = null;
+      const best = P().chBest?.[ch.id];
+      parts.unshift(`Nivel ${ch.startLevel} → ${ch.level} (${levelName(ch.level)})${best ? ` · mejor marca: nivel ${best}` : ''}`);
+    }
+    view.cond = null;
+    Object.assign(view, { arrow: null, timer: null, dim: 0, big: ch ? 'RETO COMPLETADO' : run.program.free ? 'COMPLETADO' : 'ENTRENAMIENTO COMPLETADO', bigColor: '#d4ff3a', sub: parts.join(' · ') });
+    if (ch) { describe(); renderSettings(); }
     say('Completado');
     $('#dryStart').textContent = '▶ Empezar';
   }
@@ -687,12 +934,19 @@ export function initDryFire(app) {
     const time = run?.startAt ? ((run.phase === 'done' ? run.endAt : now) - run.startAt) / 1000 : 0;
     const cell = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
     let html;
-    if (!run || run.program.free) {
+    const idle = idleProg;
+    if (!run && idle && !idle.free) {
+      html = idle.challenge
+        ? cell('RONDA', `– / ${idle.blocks.length}`) + cell('REPETICIÓN', `– / ${idle.blocks[0].reps}`) + cell('NIVEL', String(idle.challenge.level)) + cell('TIEMPO TOTAL', '0.0 s')
+        : cell('EJERCICIOS', String(idle.blocks.length)) + cell('DURACIÓN', `≈ ${fmtDuration(programDuration(idle))}`) + cell('TIEMPO TOTAL', '0.0 s');
+    } else if (!run || run.program.free) {
       const goal = P().moves;
       html = cell('DESPLAZAMIENTOS', `${run?.totalMoves ?? 0}${goal ? ` / ${goal}` : ''}`) + cell('TIEMPO', `${time.toFixed(1)} s`);
     } else {
       const b = blk(), n = run.program.blocks.length;
-      html = cell('EJERCICIO', `${run.bi + 1} / ${n}`)
+      if (run.program.challenge) html = cell('RONDA', `${run.bi + 1} / ${n}`) + cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`)
+        + cell('NIVEL', String(run.program.challenge.level)) + cell('TIEMPO TOTAL', `${time.toFixed(1)} s`);
+      else html = cell('EJERCICIO', `${run.bi + 1} / ${n}`)
         + (b.type === 'stage' ? cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`)
           : b.type === 'course' ? cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`) + cell('POSICIÓN', `${Math.max(0, run.posIdx ?? 0) + 1} / ${b.random?.on && !b.random.count ? '∞' : run.posList?.length ?? b.positions.length}`)
           : cell('DESPLAZAMIENTOS', `${run.moves}${b.moves ? ` / ${b.moves}` : ''}`))
@@ -711,12 +965,16 @@ export function initDryFire(app) {
     updateHud(now);
   }
 
-  loadSettings(); fillPrograms('');
+  fillPrograms(''); renderPick();
   requestAnimationFrame(tick);
   return {
-    onShow: () => { loadSettings(); fillPrograms(); scene.checkSize(); },
+    onShow: () => { fillPrograms(); if (!session.classList.contains('hidden')) renderSettings(); else renderPick(); scene.checkSize(); },
+    // Inicio → «Entrenamiento en seco»: abre el selector
+    showPicker,
+    // deja elegido un entrenamiento sin empezarlo
+    select,
     // arranca un entrenamiento concreto (desde el Editor)
-    startProgram: (program, selectId) => { fillPrograms(selectId ?? ''); start(program); },
+    startProgram: (program, selectId) => { fillPrograms(selectId ?? ''); showSession(); start(program); },
     debug: () => ({ run, lastPose, view }),
     // avance manual de un fotograma (pruebas con la pestaña en segundo plano)
     stepOnce: (now = performance.now()) => { if (run && run.phase !== 'done') step(now); scene.render(view, now); hudT = 0; updateHud(now); },

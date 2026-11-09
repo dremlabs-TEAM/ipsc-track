@@ -1,12 +1,13 @@
-import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261109-1754';
-import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261109-1754';
-import * as store from './storage.js?v=20261109-1754';
-import { ShotTimer, beep, audioCtx } from './timer.js?v=20261109-1754';
-import { lineChart } from './charts.js?v=20261109-1754';
-import { initDryFire } from './dryfire.js?v=20261109-1754';
-import { initEditor } from './editor.js?v=20261109-1754';
-import { programFromHash } from './program.js?v=20261109-1754';
-import { VERSION } from './version.js?v=20261109-1754';
+import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261109-2144';
+import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261109-2144';
+import * as store from './storage.js?v=20261109-2144';
+import { ShotTimer, beep, audioCtx } from './timer.js?v=20261109-2144';
+import { lineChart } from './charts.js?v=20261109-2144';
+import { initDryFire } from './dryfire.js?v=20261109-2144';
+import { initHome } from './home.js?v=20261109-2144';
+import { initEditor } from './editor.js?v=20261109-2144';
+import { programFromHash } from './program.js?v=20261109-2144';
+import { VERSION } from './version.js?v=20261109-2144';
 
 // ---------------- utilidades ----------------
 const $ = (s, r = document) => r.querySelector(s);
@@ -525,6 +526,7 @@ const showTab = (name) => $(`#tabs button[data-tab="${name}"]`).click();
 const dry = initDryFire({
   toast, ask, renderCards, renderOverall, tipsHTML, getProfile, saveProfile,
   openEditor: (id) => { showTab('editor'); if (id) editor.open(id); },
+  newTraining: () => { showTab('editor'); $('#edNew').click(); },
 });
 tabHooks.dry = dry.onShow;
 window.ipscTrack.dry = dry;
@@ -537,6 +539,17 @@ const editor = initEditor({
 });
 tabHooks.editor = editor.onShow;
 window.ipscTrack.editor = editor;
+
+// ================= INICIO (portada, selector y manual) =================
+const home = initHome({
+  showTab,
+  // «Entrenamiento en seco»: abre «En seco» en el selector de entrenamientos
+  openDry: () => { showTab('dry'); dry.showPicker(); },
+});
+tabHooks.home = home.onShow;
+window.ipscTrack.home = home;
+$('#brandHome').onclick = () => showTab('home');
+$('#brandHome').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showTab('home'); } };
 
 // ================= ACTUALIZACIONES =================
 // Al abrir la app (y al volver a la pestaña) se consulta version.json sin caché. Si hay una versión
@@ -567,7 +580,8 @@ $('#appVersion').textContent = `Versión ${VERSION}`;
 // ================= INICIO =================
 function renderAll() { renderHello(); renderProfile(); loadTimerInputs(); renderTimerHistory(); renderCards($('#liveCards'), null); renderOverall($('#liveOverall'), null); }
 renderAll();
-dry.onShow(); // la app arranca en «En seco»
+dry.onShow(); // prepara «En seco» (la app arranca en Inicio)
+home.onShow();
 navigator.mediaDevices?.enumerateDevices && listCams().catch(() => {});
 window.addEventListener('resize', () => $('#tab-history').classList.contains('active') && renderHistory());
 

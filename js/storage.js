@@ -1,5 +1,5 @@
 // Persistencia local (localStorage) de perfil, sesiones y tiempos del timer.
-import { STYLE_DEFAULTS, DEFAULT_TOLS } from './metrics.js?v=20261109-1754';
+import { STYLE_DEFAULTS, DEFAULT_TOLS } from './metrics.js?v=20261109-2144';
 
 const K = { profile: 'ipsctrack.profile', sessions: 'ipsctrack.sessions', timer: 'ipsctrack.timer', programs: 'ipsctrack.programs' };
 
@@ -18,14 +18,17 @@ export function defaultProfile() {
     refs: { ...STYLE_DEFAULTS.isosceles }, tols: { ...DEFAULT_TOLS },
     refSource: 'default', refDate: null,
     timer: { delayMin: 1.5, delayMax: 4, par: 0, threshold: 0.35, freq: 2800 },
-    dry: { camera: true, moveFactor: 2, range: 1, delay: 1, moves: 20, voice: true, activators: 'sometimes', showCam: null, advance: 'camera', moveDelay: 1 },
+    dry: { camera: true, moveFactor: 2, range: 1, delay: 1, moves: 20, voice: false, activators: 'sometimes', showCam: null, advance: 'camera', moveDelay: 1, walls: true, portDelay: 0, prefs: 2, quickStyle: 'moves', challenge: 'auto', chReps: 5, chLevels: {}, chBest: {} },
   };
 }
 
 export function loadProfile() {
   const d = defaultProfile(); const p = read(K.profile, null);
   if (!p) return d;
-  return { ...d, ...p, refs: { ...d.refs, ...p.refs }, tols: { ...d.tols, ...p.tols }, timer: { ...d.timer, ...p.timer }, dry: { ...d.dry, ...p.dry } };
+  const out = { ...d, ...p, refs: { ...d.refs, ...p.refs }, tols: { ...d.tols, ...p.tols }, timer: { ...d.timer, ...p.timer }, dry: { ...d.dry, ...p.dry } };
+  // v2: la voz pasa a estar desactivada por defecto (antes venía activada)
+  if ((p.dry?.prefs ?? 1) < 2) { out.dry.voice = false; out.dry.prefs = 2; }
+  return out;
 }
 export const saveProfile = (p) => write(K.profile, p);
 
