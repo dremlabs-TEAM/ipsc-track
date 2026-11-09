@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261109-2206';
+import { rng, PERSPECTIVE } from './course.js?v=20261109-2347';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
@@ -997,13 +997,9 @@ export class StageRenderer {
   // ------------------------------------------------------------- HUD
   arrowHud(ctx, dir, since, now) {
     const { W, H, u } = this, a = clamp01((now - since) / 260), ap = easeOutBack(a);
-    const w = W * 0.44, h = H * 0.135, cx = W / 2 + dir * (1 - ap) * W * 0.04, cy = H * 0.11;
+    // indicador compacto arriba, en el centro (sin brillo lateral: no tapa el escenario)
+    const w = W * 0.3, h = H * 0.09, cx = W / 2 + dir * (1 - ap) * W * 0.03, cy = H * 0.085;
     ctx.save(); ctx.globalAlpha = a;
-    // brillo en el borde de pantalla hacia donde moverse
-    const pulse = 0.5 + 0.5 * Math.sin(now / 260);
-    const eg = ctx.createLinearGradient(dir > 0 ? W : 0, 0, dir > 0 ? W - W * 0.09 : W * 0.09, 0);
-    eg.addColorStop(0, `rgba(80,210,255,${0.22 + 0.16 * pulse})`); eg.addColorStop(1, 'rgba(80,210,255,0)');
-    ctx.fillStyle = eg; ctx.fillRect(dir > 0 ? W - W * 0.09 : 0, 0, W * 0.09, H);
     // cápsula de cristal
     ctx.translate(cx, cy); ctx.scale(0.9 + 0.1 * ap, 0.9 + 0.1 * ap);
     roundRect(ctx, -w / 2, -h / 2, w, h, h / 2);
@@ -1197,16 +1193,21 @@ export class StageRenderer {
       const p = clamp01((now - tr.start) / tr.dur), e = easeInOut(p);
       const fence = this.fenceCanvas(), FW = fence.width;
       const xL = tr.dir > 0 ? W - e * (W + FW) : -FW + e * (W + FW); // borde izquierdo de la malla
-      const mid = xL + FW / 2;
       this.drawStage(ctx, tr.to, now);
       if (tr.toPort) this.portWall(ctx, tr.toPort.cfg, tr.toPort.p);
-      ctx.save(); ctx.beginPath();
-      if (tr.dir > 0) ctx.rect(0, 0, Math.max(0, mid), H); else ctx.rect(Math.min(W, mid), 0, W, H);
-      ctx.clip();
-      const A = this.bufA.getContext('2d'); this.drawStage(A, tr.from, now);
+      // el escenario que sale se funde con el que entra a lo ancho de la malla (sin un corte que se vea a
+      // través de los huecos): delante de la malla sigue el anterior y detrás ya está el nuevo
+      const A = this.bufA.getContext('2d');
+      A.save(); A.globalCompositeOperation = 'source-over'; A.globalAlpha = 1;
+      this.drawStage(A, tr.from, now);
       if (tr.fromPort) this.portWall(A, tr.fromPort.cfg, tr.fromPort.p);
+      const g0 = Math.max(-2 * W, Math.min(2 * W, xL)), g1 = Math.max(g0 + 1, Math.min(3 * W, xL + FW));
+      const mask = A.createLinearGradient(g0, 0, g1, 0);
+      mask.addColorStop(0, tr.dir > 0 ? 'rgba(0,0,0,1)' : 'rgba(0,0,0,0)');
+      mask.addColorStop(1, tr.dir > 0 ? 'rgba(0,0,0,0)' : 'rgba(0,0,0,1)');
+      A.globalCompositeOperation = 'destination-in'; A.fillStyle = mask; A.fillRect(0, 0, W, H);
+      A.restore();
       ctx.drawImage(this.bufA, 0, 0);
-      ctx.restore();
       // sombra que proyecta la malla y la propia malla
       const sh = ctx.createLinearGradient(xL - W * 0.05, 0, xL + FW + W * 0.05, 0);
       sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(0.08, 'rgba(0,0,0,0.28)'); sh.addColorStop(0.92, 'rgba(0,0,0,0.28)'); sh.addColorStop(1, 'rgba(0,0,0,0)');

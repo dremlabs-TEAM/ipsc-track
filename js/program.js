@@ -7,7 +7,7 @@
 // block (recorrido aleatorio) = { id, type: 'arena', name, moves, delay, activators, restAfter }
 // block (recorrido personalizado) = { id, type: 'course', name, positions: [pos], reps, rest, startMode, restAfter }
 //   pos = { id, dir: 'none'|'left'|'right'|'random' (desplazamiento para llegar), time (s en la posición), activatorAt, comp, layout }
-import { uid } from './storage.js?v=20261109-2206';
+import { uid } from './storage.js?v=20261109-2347';
 
 // ---- condiciones de un ejercicio: con qué mano, desde qué posición, recarga obligatoria ----
 export const HAND_LABEL = { free: 'Libre (dos manos)', strong: 'Solo mano fuerte', weak: 'Solo mano débil' };
@@ -34,7 +34,7 @@ export function condParts(c) {
 }
 export const condText = (c) => condParts(c).join(' · ');
 
-// ---- retos de «Repetir mismo escenario»: rondas con condiciones y tiempos que se aprietan ----
+// ---- retos de «Desafíos»: rondas con condiciones y tiempos que se aprietan ----
 // tight = cuánto se aprieta el tiempo en esa ronda (1 = normal; 0,8 = 20 % menos)
 export const CHALLENGES = [
   { id: 'auto', name: 'Reto aleatorio progresivo', desc: 'Condiciones al azar en cada ronda y tiempos que se van apretando.' },
@@ -76,11 +76,15 @@ export function stageBaseTime(stage) {
   }
   return 1.3 + Math.max(2, shots) * 0.42;
 }
-export function roundTime(base, cond, tight, level) {
+// tiempo «de referencia» de una ronda (factor 1): escenario + salida + recarga + mano, con su ajuste de la progresión
+export function roundRaw(base, cond, tight) {
   const c = cond || {};
-  const t = (base + (START_EXTRA[c.start] || 0) + (c.reload ? 2.2 : 0)) * (c.hand && c.hand !== 'free' ? 1.35 : 1) * (tight || 1) * levelFactor(level);
-  return Math.max(2, Math.round(t * 2) / 2);
+  return (base + (START_EXTRA[c.start] || 0) + (c.reload ? 2.2 : 0)) * (c.hand && c.hand !== 'free' ? 1.35 : 1) * (tight || 1);
 }
+export const roundTimeF = (base, cond, tight, F) => Math.max(1.5, Math.round(roundRaw(base, cond, tight) * F * 2) / 2);
+export function roundTime(base, cond, tight, level) { return roundTimeF(base, cond, tight, levelFactor(level)); }
+// nivel equivalente a un ritmo (factor de tiempo): 1,55 → nivel 1 · 0,65 → nivel 10
+export const levelFromFactor = (F) => Math.min(LEVELS, Math.max(1, Math.round((1.55 - F) / 0.1 + 1)));
 
 export const MOVER_LABEL = { none: 'Sin móvil', random: 'Móvil aleatorio', swinger: 'Balancín', drop: 'Drop turner', slider: 'Deslizante', bobber: 'Emergente' };
 export const DIST_LABEL = { close: 'Cerca (6–9 m)', mid: 'Media (7–13 m)', far: 'Lejos (10–18 m)', mixed: 'Mixta' };
@@ -223,6 +227,7 @@ function b64urlDecode(s) {
 }
 export function shareUrl(p) {
   const { id, created, updated, ...data } = p;
+  data.blocks = (data.blocks || []).map((b) => (b.sheet ? { ...b, sheet: { ...b.sheet, img: null } } : b)); // la imagen del PDF es demasiado grande para un enlace
   return `${location.origin}${location.pathname}#prog=${b64urlEncode(JSON.stringify({ v: 1, ...data }))}`;
 }
 export function programFromHash(hash) {
@@ -248,7 +253,7 @@ export function sanitizeProgram(d) {
       return {
         id: uid(), type: 'course', name: String(b.name || 'Recorrido').slice(0, 60),
         positions: b.positions.slice(0, 12).map((p, i) => ({
-          id: uid(), dir: oneOf(p?.dir, ['none', 'left', 'right', 'random'], i === 0 ? 'none' : 'right'), time: num(p?.time, 3, 0.5, 60), randomScene: !!p?.randomScene,
+          id: uid(), dir: oneOf(p?.dir, ['none', 'left', 'right', 'random'], i === 0 ? 'none' : 'right'), time: num(p?.time, 3, 0.5, 60), arrowAt: num(p?.arrowAt, 1, 0.3, 10), randomScene: !!p?.randomScene,
           advance: oneOf(p?.advance, ['camera', 'auto'], 'camera'), moveDelay: num(p?.moveDelay, 1, 0.2, 30),
           activatorAt: num(p?.activatorAt, 1, 0.5, 10), comp: sanitizeComp(p?.comp), layout: sanitizeLayout(p?.layout), port: sanitizePort(p?.port),
         })),

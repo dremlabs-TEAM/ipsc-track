@@ -824,3 +824,45 @@ body.no-scroll { overflow: hidden; }
   .gx-seg button.on, .gx-tog.on i, .gx-meter i.on, .dry-mode-ic { box-shadow: none; }
   .mode-card, .pick-card { transition: none; }
 }
+
+/* importar ejercicios desde PDF */
+.ed-pdf-btn { background: rgba(212,255,58,.1); border-color: rgba(212,255,58,.4); color: var(--accent); }
+.pdf-dlg { position: fixed; inset: 0; z-index: 40; background: rgba(4,6,10,.72); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.pdf-dlg.hidden { display: none; }
+.pdf-dlg-box { width: min(1100px, 100%); max-height: 92vh; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.pdf-dlg-box header, .pdf-dlg-box footer { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.pdf-dlg-box header { justify-content: space-between; border-bottom: 1px solid var(--line); }
+.pdf-dlg-box header b { display: block; font: 700 19px Rajdhani, sans-serif; } .pdf-dlg-box header small { color: var(--muted); font-size: 12px; }
+.pdf-dlg-box footer { border-top: 1px solid var(--line); } .pdf-dlg-box footer.hidden { display: none; }
+.pdf-dlg-box footer span { flex: 1; }
+.pdf-dlg-body { overflow: auto; padding: 16px; }
+.pdf-loading { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); padding: 40px; }
+.pdf-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 10px; }
+.pdf-page { position: relative; display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg2); color: var(--text); cursor: pointer; font: inherit; transition: border-color .15s, background .15s; }
+.pdf-page:hover { border-color: #3d4652; }
+.pdf-page.on { border-color: var(--accent); background: rgba(212,255,58,.07); box-shadow: 0 0 0 1px var(--accent); }
+.pdf-page.dim { opacity: .5; }
+.pdf-page img { width: 100%; border-radius: 6px; background: #fff; }
+.pdf-page b { font: 700 17px Rajdhani, sans-serif; } .pdf-page small { color: var(--muted); font-size: 11.5px; }
+.pdf-page em { font-style: normal; font-size: 11px; color: #9aa6b4; line-height: 1.3; }
+.pdf-check { position: absolute; top: 12px; right: 12px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700;
+  background: rgba(8,12,18,.7); border: 2px solid #fff; color: #0b0d10; }
+.pdf-page.on .pdf-check { background: var(--accent); border-color: var(--accent); }
+.pdf-sheet { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pdf-sheet-img img { width: 100%; display: block; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+.pdf-sheet dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; font-size: 13px; }
+.pdf-sheet dt { color: var(--muted); font-weight: 600; } .pdf-sheet dd { margin: 0; color: #dfe5eb; }
+@media (max-width: 640px) { .pdf-sheet { grid-template-columns: minmax(0, 1fr); } .pdf-sheet dl { grid-template-columns: minmax(0, 1fr); } .pdf-sheet dt { margin-top: 4px; } }
+
+.pdf-rec { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pdf-rec span { font-size: 12px; border-radius: 99px; padding: 2px 9px; border: 1px solid var(--line); background: var(--bg); }
+.pdf-rec span.bad { border-color: rgba(255,197,61,.6); color: var(--warn); }
+.pdf-rec b { font-size: 12.5px; } .pdf-rec b.ok { color: var(--good); } .pdf-rec b.bad { color: var(--warn); }
+
+.dry-rate-secs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; width: min(640px, 100%); margin-top: 6px; }
+.dry-rate-secs button { padding: 12px 4px; border-radius: 10px; cursor: pointer; font: 700 20px Rajdhani, sans-serif; background: rgba(23,28,34,.92); color: var(--text); border: 1px solid var(--line); transition: border-color .15s, background .15s; }
+.dry-rate-secs button:hover { border-color: var(--accent); background: rgba(212,255,58,.1); }
+.dry-rate-secs button.fail { grid-column: span 2; font-size: 16px; color: #ffb3b4; }
+.dry-rate-secs button.fail:hover { border-color: var(--bad); background: rgba(255,77,79,.1); }
+.dry-rate-hint { color: var(--muted) !important; font-size: 12px !important; }
+@media (max-width: 640px) { .dry-rate-secs { grid-template-columns: repeat(4, minmax(0, 1fr)); } .dry-rate-secs button { font-size: 17px; padding: 10px 2px; } }

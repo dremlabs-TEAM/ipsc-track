@@ -4,12 +4,12 @@
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261109-2206';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-2206';
-import { Analyzer } from './pose.js?v=20261109-2206';
-import { beep, audioCtx } from './timer.js?v=20261109-2206';
-import * as store from './storage.js?v=20261109-2206';
-import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, CHALLENGES, autoRounds, levelName, LEVELS, stageBaseTime, roundTime, condText, defaultCond, defaultRandom } from './program.js?v=20261109-2206';
+import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261109-2347';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-2347';
+import { Analyzer } from './pose.js?v=20261109-2347';
+import { beep, audioCtx } from './timer.js?v=20261109-2347';
+import * as store from './storage.js?v=20261109-2347';
+import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, CHALLENGES, autoRounds, levelName, LEVELS, stageBaseTime, roundTime, roundTimeF, roundRaw, levelFactor, levelFromFactor, condText, defaultCond, defaultRandom } from './program.js?v=20261109-2347';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -72,12 +72,13 @@ export function initDryFire(app) {
 
   // ---------------- selección de entrenamiento ----------------
   const progSel = $('#dryProgram');
-  // «Repetir mismo escenario»: un escenario fijo y rondas con condiciones; el tiempo depende del nivel
+  // «Desafíos»: un escenario fijo y rondas con condiciones; el tiempo depende del nivel
   let chCache = null;
   const fmtS1 = (v) => String(v).replace('.', ',');
   function challengeProgram() {
     const d = P(), ch = CHALLENGES.find((c) => c.id === d.challenge) || CHALLENGES[0];
-    const level = d.chLevels?.[ch.id] ?? 1, reps = d.chReps || 5, key = `${ch.id}|${level}|${reps}`;
+    const F = d.chFactor?.[ch.id] ?? levelFactor(d.chLevels?.[ch.id] ?? 1);
+    const level = levelFromFactor(F), reps = d.chReps || 5, key = `${ch.id}|${F}|${reps}`;
     if (chCache?.key === key) return chCache.prog;
     const r = Math.random;
     const comp = { paper: 2 + Math.floor(r() * 2), poppers: 1 + Math.floor(r() * 2), plates: Math.floor(r() * 3), mover: 'none', popSize: 'mixed', dist: 'mid', styleRandom: true, hard: 0 };
@@ -87,10 +88,10 @@ export function initDryFire(app) {
     const blocks = rounds.map((rd, i) => {
       const cond = { ...defaultCond(), hand: rd.hand || 'free', start: rd.start || 'holster', reload: !!rd.reload };
       return { id: `r${i}`, type: 'course', name: `Ronda ${i + 1} de ${rounds.length}`, tight: rd.tight || 1, cond,
-        positions: [{ id: `p${i}`, dir: 'none', time: roundTime(base, cond, rd.tight || 1, level), advance: 'auto', moveDelay: 1, activatorAt: 1, comp, layout, port: null, randomScene: false }],
+        positions: [{ id: `p${i}`, dir: 'none', time: roundTimeF(base, cond, rd.tight || 1, F), advance: 'auto', moveDelay: 1, activatorAt: 1, comp, layout, port: null, randomScene: false }],
         reps, rest: 6, startMode: 'random', restAfter: 12, startMove: false, maxTime: 0, random: defaultRandom() };
     });
-    const prog = { quick: true, name: ch.name, challenge: { id: ch.id, level, startLevel: level, base, ratings: [] }, blocks };
+    const prog = { quick: true, name: ch.name, challenge: { id: ch.id, level, startLevel: level, F, base, ratings: [] }, blocks };
     chCache = { key, prog };
     return prog;
   }
@@ -158,7 +159,7 @@ export function initDryFire(app) {
       </button>
       <button class="pick-card featured alt" data-pick="" data-quick="repeat">
         <span class="pick-ic" aria-hidden="true">${ICONS.repeat}</span>
-        <span class="pick-txt"><small class="pick-tag">Entrenamiento rápido · retos</small><b>Repetir mismo escenario</b>
+        <span class="pick-txt"><small class="pick-tag">Entrenamiento rápido · mismo escenario</small><b>Desafíos</b>
           <small>Sin desplazamientos: rondas con condiciones (mano débil, arma descargada, recarga…) y tiempo límite. La dificultad se adapta a ti ronda a ronda.</small></span>
         <span class="pick-go">Elegir →</span>
       </button>
@@ -210,14 +211,14 @@ export function initDryFire(app) {
     let how = [];
     if (mode === 'repeat') {
       const ch = CHALLENGES.find((c) => c.id === p.challenge.id), L = p.challenge.level, best = P().chBest?.[p.challenge.id];
-      $('#dryModeKicker').textContent = 'Entrenamiento rápido · Repetir mismo escenario';
+      $('#dryModeKicker').textContent = 'Entrenamiento rápido · Desafíos';
       $('#dryModeTitle').innerHTML = `${esc(ch.name)} <span class="dry-lv">NIVEL ${L} · ${levelName(L).toUpperCase()}</span>`;
       $('#dryDesc').textContent = `${ch.desc} ${p.blocks.length} rondas de ${p.blocks[0].reps} repeticiones con el mismo escenario${best ? ` · tu mejor marca: nivel ${best}` : ''}.`;
       $('#dryBlocks').innerHTML = p.blocks.map((b) => `<li><b>${esc(b.name)} · ${b.reps}×</b><span>${esc(condText(b.cond) || 'Dos manos, desde la funda')}</span><em>${fmtS1(b.positions[0].time)} s</em></li>`).join('');
       how = ['Colócate frente a la pantalla con el arma enfundada (o como indique la condición). <b>Arma descargada y sin munición en la sala.</b>',
         'Antes de cada ronda verás sus condiciones; también abajo en pantalla mientras tiras.',
         'Cada repetición: «PREPARADO», beep aleatorio, tiempo límite (barra arriba) y beep final.',
-        'Al acabar cada ronda indica qué tal te ha ido (toca un botón o teclas 1–4): la app ajusta el tiempo de la siguiente.'];
+        'Al acabar cada ronda indica cuántos segundos te han sobrado (o «No llegué»): la siguiente ronda se ajusta a tu tiempo + 1 s y la progresión sigue desde ahí.'];
     } else if (mode === 'moves') {
       const d = P();
       $('#dryModeKicker').textContent = 'Entrenamiento rápido';
@@ -283,7 +284,7 @@ export function initDryFire(app) {
       html += gsec('sliders', 'Nivel',
         `<div class="gx-level"><div class="gx-meter">${Array.from({ length: LEVELS }, (_, i) => `<i class="${i < L ? 'on' : ''} ${best && i === best - 1 ? 'best' : ''}" style="--k:${i / (LEVELS - 1)}"></i>`).join('')}</div>
           <div class="gx-level-txt"><b>${L}</b><span>${levelName(L)}${best ? ` · mejor ★ ${best}` : ''}</span></div></div>
-        <small class="gx-hint">Empiezas fácil. Tras cada ronda dices qué tal te ha ido y el nivel (el tiempo) se ajusta solo.</small>
+        <small class="gx-hint">Empiezas fácil. Tras cada ronda dices cuántos segundos te han sobrado y la siguiente se ajusta a tu tiempo + 1 s. Tu ritmo se guarda para la próxima vez.</small>
         <button type="button" class="btn small gx-reset" id="dryChReset">↺ Volver a nivel 1</button>`);
       html += gsec('repeat', 'Rondas', grow('Repeticiones por ronda', gseg('chReps', d.chReps || 5, [[3, '3'], [5, '5'], [8, '8']]))
         + '<small class="gx-hint">Sin desplazamientos ni cámara: el mismo escenario en todas las rondas.</small>');
@@ -317,7 +318,7 @@ export function initDryFire(app) {
     }
     const ch = t.closest('[data-ch]'); if (ch) { setPref('challenge', ch.dataset.ch); return; }
     if (t.closest('#dryChReset')) {
-      const d = P(); d.chLevels = { ...(d.chLevels || {}), [d.challenge]: 1 }; saveProfile(); chCache = null; renderSettings(); describe();
+      const d = P(); d.chLevels = { ...(d.chLevels || {}), [d.challenge]: 1 }; if (d.chFactor) delete d.chFactor[d.challenge]; saveProfile(); chCache = null; renderSettings(); describe();
       toast('Este reto vuelve a empezar en nivel 1');
     }
   });
@@ -329,7 +330,7 @@ export function initDryFire(app) {
     if (e.key === 'ArrowLeft') { keyHeld.left = true; e.preventDefault(); }
     if (e.key === 'ArrowRight') { keyHeld.right = true; e.preventDefault(); }
     if (e.key === 'ArrowDown') { keyHeld.down = true; e.preventDefault(); }
-    if (run?.phase === 'rate' && ['1', '2', '3', '4'].includes(e.key)) { rate([2, 1, 0, -1][Number(e.key) - 1]); e.preventDefault(); return; }
+    if (run?.phase === 'rate' && /^[0-6nN]$/.test(e.key)) { rate(/n/i.test(e.key) ? -1 : Number(e.key)); e.preventDefault(); return; }
     if (e.key === 'Escape') { if (stageBox.classList.contains('immersive')) { exitFull(); return; } if (run) stop('DETENIDO'); }
   });
   window.addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft') keyHeld.left = false; if (e.key === 'ArrowRight') keyHeld.right = false; if (e.key === 'ArrowDown') keyHeld.down = false; });
@@ -663,26 +664,33 @@ export function initDryFire(app) {
     const b = blk(), ch = run.program.challenge;
     setPhase('rate', now);
     Object.assign(view, { big: null, sub: null, timer: null, dim: 0.55 });
-    $('#dryRateSub').textContent = `${b.name} · ${roundLabel(b)} · nivel ${ch.level} (${levelName(ch.level)})`;
+    $('#dryRateSub').textContent = `${b.name} · tenías ${fmtS1(b.positions[0].time)} s · ${condText(b.cond) || 'dos manos, desde la funda'} · de media en la ronda`;
     $('#dryRate').classList.remove('hidden');
   }
-  function rate(delta) {
+  // left: segundos que han sobrado (−1 = no llegó). Tu tiempo real + 1 s marca el ritmo de las rondas siguientes.
+  function rate(left) {
     if (run?.phase !== 'rate') return;
-    const ch = run.program.challenge, played = ch.level, d = P();
-    ch.ratings.push(delta);
-    ch.level = Math.min(LEVELS, Math.max(1, played + delta));
+    const ch = run.program.challenge, b = blk(), d = P();
+    const par = b.positions[0].time, raw = roundRaw(ch.base, b.cond, b.tight);
+    const yours = left < 0 ? par + 0.5 : Math.max(0.8, par - left);   // tu tiempo (aprox. si no llegaste)
+    const target = yours + 1;                                          // un segundo más de lo que has tardado
+    ch.ratings.push(left);
+    ch.F = Math.max(0.35, Math.min(2.2, target / raw));
+    const before = ch.level;
+    ch.level = levelFromFactor(ch.F);
+    d.chFactor = { ...(d.chFactor || {}), [ch.id]: +ch.F.toFixed(3) };
     d.chLevels = { ...(d.chLevels || {}), [ch.id]: ch.level };
-    if (delta >= 0) d.chBest = { ...(d.chBest || {}), [ch.id]: Math.max(d.chBest?.[ch.id] || 0, played) };
+    if (left >= 0) d.chBest = { ...(d.chBest || {}), [ch.id]: Math.max(d.chBest?.[ch.id] || 0, levelFromFactor(yours / raw)) };
     saveProfile(); chCache = null;
-    // las rondas que quedan se ajustan al nuevo nivel
-    run.program.blocks.forEach((bk, k) => { if (k > run.bi) bk.positions[0].time = roundTime(ch.base, bk.cond, bk.tight, ch.level); });
+    // las rondas que quedan se ajustan a tu ritmo y siguen apretando desde ahí
+    run.program.blocks.forEach((bk, k) => { if (k > run.bi) bk.positions[0].time = roundTimeF(ch.base, bk.cond, bk.tight, ch.F); });
     $('#dryRate').classList.add('hidden');
     run.ratedBi = run.bi; view.dim = 0;
     const nx = run.program.blocks[run.bi + 1];
-    toast(nx ? `Siguiente ronda en nivel ${ch.level} (${levelName(ch.level)}): ${fmtS1(nx.positions[0].time)} s` : `La próxima vez empezarás en nivel ${ch.level} (${levelName(ch.level)})`, 3800);
+    toast(`${left < 0 ? `No llegaste en ${fmtS1(par)} s` : `Tu tiempo: ${fmtS1(yours)} s`} → ${nx ? `siguiente ronda: ${fmtS1(nx.positions[0].time)} s` : 'la próxima vez seguirás a este ritmo'} · nivel ${ch.level}${ch.level !== before ? ` (${ch.level > before ? '▲' : '▼'})` : ''}`, 4200);
     endBlock(performance.now());
   }
-  $('#dryRate').addEventListener('click', (e) => { const r = e.target.closest('[data-rate]'); if (r) rate(Number(r.dataset.rate)); });
+  $('#dryRate').addEventListener('click', (e) => { const r = e.target.closest('[data-left]'); if (r) rate(Number(r.dataset.left)); });
 
   function endBlock(now) {
     if (run.program.challenge && run.ratedBi !== run.bi) { askRating(now); return; }
@@ -869,8 +877,14 @@ export function initDryFire(app) {
         if (ps === true) { view.timer = b.maxTime ? { elapsed: (now - run.beepAt) / 1000, par: b.maxTime } : null; return; } // aún tras el muro
         if (ps === 'opened') run.posShownAt = now;
         maybeActivate(run.posStages[run.posIdx], run.posShownAt, pos.activatorAt, now);
-        view.timer = b.maxTime ? { elapsed: (now - run.beepAt) / 1000, par: b.maxTime } : { elapsed: (now - run.posShownAt) / 1000, par: pos.time };
-        if (now >= run.posShownAt + pos.time * 1000) {
+        // si el siguiente cambio es al desplazarte, la flecha sale enseguida (a los ~1 s): el tirador tarda
+        // lo que tarde en resolver y ya sabe hacia dónde ir. El tiempo del escenario solo cuenta en automático
+        // (sin cámara) y en el último escenario (hasta el beep final).
+        const nextPos = run.posList[run.posIdx + 1];
+        const byMove = !!nextPos && !b.random?.on && nextPos.advance !== 'auto';
+        const wait = byMove ? (pos.arrowAt ?? 1) : pos.time;
+        view.timer = b.maxTime ? { elapsed: (now - run.beepAt) / 1000, par: b.maxTime } : byMove ? null : { elapsed: (now - run.posShownAt) / 1000, par: pos.time };
+        if (now >= run.posShownAt + wait * 1000) {
           if (!b.maxTime) view.timer = null;
           if (b.random?.on && !b.random.count && run.posIdx + 1 >= run.posList.length) { addRandomPos(b); warm(run.posStages[run.posStages.length - 1]); }
           const next = run.posList[run.posIdx + 1];

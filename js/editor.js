@@ -4,13 +4,15 @@
 // configurar cada elemento (tarjetas, poppers, placas, móviles, muros, bidones…).
 import {
   composeStage, stageFromLayout, layoutOf, finalizeStage, PERSPECTIVE, makeStyle, randomKind, TARGET_KINDS, KIND_LABEL, HARD_PRESETS, kindWidth,
-} from './course.js?v=20261109-2206';
-import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261109-2206';
-import * as store from './storage.js?v=20261109-2206';
+} from './course.js?v=20261109-2347';
+import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261109-2347';
+import { openPdf, readPage } from './pdf-import.js?v=20261109-2347';
+import { stageToExercise } from './pdf-stage.js?v=20261109-2347';
+import * as store from './storage.js?v=20261109-2347';
 import {
   newProgram, newExercise, migrateBlock, newCoursePosition, defaultComp, exampleProgram, defaultCond, condText, HAND_LABEL, START_LABEL, blockSummary, blockDuration, programDuration, fmtDuration,
   shareUrl, sanitizeProgram, MOVER_LABEL, DIST_LABEL, DIR_LABEL, DIR_ARROW, defaultPort,
-} from './program.js?v=20261109-2206';
+} from './program.js?v=20261109-2347';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -86,6 +88,77 @@ export function initEditor(app) {
       if (!last) throw new Error('no contiene entrenamientos');
       open(last.id); toast('Entrenamiento importado ✔');
     } catch (err) { toast(`No se pudo importar: ${err.message}`, 4000); }
+  };
+
+  // ------------------------------------------------------------ importar ejercicios desde un PDF
+  const pdfDlg = $('#pdfDlg');
+  let pdfPages = [], pdfFile = '', pdfSel = new Set();
+  const pdfCounts = (c) => [c.paper ? `${c.paper} tarjetas` : '', c.ns ? `${c.ns} NS` : '', c.popper ? `${c.popper} poppers` : '', c.plate ? `${c.plate} platos` : '', c.rounds ? `${c.rounds} disparos` : ''].filter(Boolean).join(' · ');
+  const isStage = (pg) => !!(pg.info.stage || pg.info.counts.paper || pg.info.counts.rounds);
+  function pdfRender() {
+    $('#pdfBody').innerHTML = `<div class="pdf-pages">${pdfPages.map((pg, k) => `
+      <button class="pdf-page ${pdfSel.has(k) ? 'on' : ''} ${isStage(pg) ? '' : 'dim'}" data-pg="${k}" aria-pressed="${pdfSel.has(k)}">
+        <span class="pdf-check">${pdfSel.has(k) ? '✓' : ''}</span>
+        <img src="${pg.thumb}" alt="">
+        <b>${pg.info.stage ? `Stage ${esc(pg.info.stage)}` : `Página ${pg.n}`}</b>
+        <small>${esc(pdfCounts(pg.info.counts) || (isStage(pg) ? '' : 'Sin datos de ejercicio'))}</small>
+        ${pg.info.start ? `<em>${esc(pg.info.start.slice(0, 70))}</em>` : ''}
+      </button>`).join('')}</div>`;
+    const n = pdfSel.size;
+    $('#pdfCount').textContent = n ? `${n} ${n === 1 ? 'ejercicio seleccionado' : 'ejercicios seleccionados'}` : 'Toca los ejercicios que quieres importar';
+    $('#pdfGo').disabled = !n;
+    $('#pdfGo').textContent = n ? `Crear entrenamiento con ${n} ${n === 1 ? 'ejercicio' : 'ejercicios'}` : 'Crear entrenamiento';
+  }
+  $('#edPdf').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    pdfFile = f.name; pdfPages = []; pdfSel = new Set();
+    pdfDlg.classList.remove('hidden'); $('#pdfFoot').classList.add('hidden');
+    $('#pdfTitle').textContent = 'Leyendo el PDF…'; $('#pdfSub').textContent = f.name;
+    $('#pdfBody').innerHTML = '<div class="pdf-loading"><span class="spinner"></span> Abriendo el PDF…</div>';
+    try {
+      const doc = await openPdf(await f.arrayBuffer());
+      for (let n = 1; n <= doc.numPages; n++) {
+        $('#pdfBody').innerHTML = `<div class="pdf-loading"><span class="spinner"></span> Leyendo el ejercicio ${n} de ${doc.numPages}…</div>`;
+        const pg = await readPage(doc, n);
+        pg.thumb = pg.canvas.toDataURL('image/jpeg', 0.55);
+        pdfPages.push(pg);
+      }
+      $('#pdfTitle').textContent = 'Elige los ejercicios';
+      $('#pdfSub').textContent = `${f.name} · se creará un entrenamiento con los que elijas, con sus posiciones y escenarios`;
+      $('#pdfFoot').classList.remove('hidden');
+      pdfRender();
+    } catch (err) {
+      console.error(err);
+      $('#pdfBody').innerHTML = `<p class="ed-warn">No se ha podido leer el PDF: ${esc(err.message || err)}</p>`;
+    }
+  };
+  $('#pdfClose').onclick = () => pdfDlg.classList.add('hidden');
+  $('#pdfBody').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-pg]'); if (!b) return;
+    const k = +b.dataset.pg; if (pdfSel.has(k)) pdfSel.delete(k); else pdfSel.add(k);
+    pdfRender();
+  });
+  $('#pdfAll').onclick = () => { const all = pdfPages.map((pg, k) => (isStage(pg) ? k : -1)).filter((k) => k >= 0); pdfSel = pdfSel.size === all.length ? new Set() : new Set(all); pdfRender(); };
+  $('#pdfGo').onclick = async () => {
+    const ks = [...pdfSel].sort((a, b) => a - b); if (!ks.length) return;
+    $('#pdfFoot').classList.add('hidden');
+    const blocks = [];
+    for (const k of ks) {
+      $('#pdfBody').innerHTML = `<div class="pdf-loading"><span class="spinner"></span> Montando ${pdfPages[k].info.stage ? `el stage ${esc(pdfPages[k].info.stage)}` : `la página ${pdfPages[k].n}`}…</div>`;
+      await new Promise((r) => setTimeout(r, 20));
+      try { blocks.push(stageToExercise(pdfPages[k], { file: pdfFile })); } catch (err) { console.error(err); }
+    }
+    const ev = pdfPages[ks[0]].info.event;
+    const p = newProgram((ev || pdfFile.replace(/\.pdf$/i, '')).slice(0, 70));
+    p.notes = `Importado de «${pdfFile}». Las posiciones se han creado a partir del dibujo de cada ejercicio.`.slice(0, 500);
+    p.blocks = blocks;
+    ensureLayouts(p);
+    store.saveProgram(p);
+    pdfDlg.classList.add('hidden');
+    open(p.id);
+    selBlockId = p.blocks[0]?.id || null; renderBlocks(); renderBlock();
+    toast(`Entrenamiento creado con ${blocks.length} ${blocks.length === 1 ? 'ejercicio' : 'ejercicios'} desde el PDF`, 4000);
   };
 
   // completa composiciones antiguas y genera las disposiciones que falten
@@ -336,6 +409,38 @@ export function initEditor(app) {
         ${m.advance === 'auto' ? numField(`mv.${idx}.moveDelay`, 'Cambia tras la flecha a los', m.moveDelay ?? 1, 0.2, 30, 0.1, 's') : ''}</div>
         <p class="ed-note">${CAM_NOTE}</p>`;
     };
+    // ficha del PDF del que se importó el ejercicio (referencia)
+    const S = b.sheet;
+    // lo que hay realmente en el ejercicio, para compararlo con la ficha
+    const rec = { paper: 0, ns: 0, popper: 0, plate: 0 };
+    if (S) for (const q of b.positions) for (const it of q.layout?.items || []) {
+      if (it.type === 'paper' || it.type === 'mover') {
+        const kind = (it.type === 'mover' ? it.tstyle?.kind : it.style?.kind) || 'normal';
+        rec.paper += kind.startsWith('double') ? 2 : 1;
+        if (/ns/.test(kind) || it.fixedNS) rec.ns++;
+      } else if (it.type === 'popper') rec.popper++;
+      else if (it.type === 'plate') rec.plate++;
+    }
+    const W = S?.want, want = W ? { paper: W.paper + W.mover, ns: W.ns, popper: W.popper, plate: W.plate } : null;
+    const recRow = want ? [['paper', 'tarjeta', 'tarjetas'], ['ns', 'no‑shoot', 'no‑shoots'], ['popper', 'popper', 'poppers'], ['plate', 'plato', 'platos']]
+      .map(([k, one, many]) => `<span class="${rec[k] === want[k] ? 'ok' : 'bad'}">${rec[k]}${rec[k] === want[k] ? '' : ` de ${want[k]}`} ${(rec[k] === want[k] ? rec[k] : want[k]) === 1 ? one : many}</span>`).join('') : '';
+    const recOk = want && Object.keys(want).every((k) => rec[k] === want[k]);
+    const secSheet = S ? sec('sheet', '📄', 'Ficha del PDF', `${S.stage ? `Stage ${esc(S.stage)} · ` : ''}${esc(S.summary || '')}${S.counts?.rounds ? ` · ${S.counts.rounds} disparos` : ''}${S.counts?.points ? ` · ${S.counts.points} puntos` : ''}`,
+      `<div class="pdf-sheet">
+        ${S.img ? `<a class="pdf-sheet-img" href="${S.img}" target="_blank" rel="noopener" title="Ver el dibujo en grande"><img src="${S.img}" alt="Dibujo del ejercicio en el PDF"></a>` : ''}
+        <dl>
+          ${S.event ? `<dt>Competición</dt><dd>${esc(S.event)}</dd>` : ''}
+          <dt>Posición de salida</dt><dd>${esc(S.start || '—')}</dd>
+          <dt>Procedimiento</dt><dd>${esc(S.procedure || '—')}</dd>
+          <dt>Condición del arma</dt><dd>${esc(S.condition || '—')}</dd>
+          <dt>Blancos</dt><dd>${esc(S.summary || '—')}</dd>
+          ${S.counts?.rounds ? `<dt>Disparos mínimos</dt><dd>${S.counts.rounds}</dd>` : ''}
+          ${S.counts?.points ? `<dt>Puntuación máxima</dt><dd>${S.counts.points} puntos</dd>` : ''}
+          <dt>Origen</dt><dd>${esc(S.file || 'PDF')}${S.page ? ` · página ${S.page}` : ''}</dd>
+          ${want ? `<dt>En el ejercicio</dt><dd class="pdf-rec">${recRow}<b class="${recOk ? 'ok' : 'bad'}">${recOk ? '✓ Igual que la ficha' : '⚠ No coincide con la ficha'}</b></dd>` : ''}
+        </dl>
+      </div>
+      <p class="ed-note">Las posiciones se han creado a partir del dibujo: cada una muestra los blancos que se verían desde allí. Ajústalas a tu gusto en las secciones 5 y 6.</p>`) : '';
     const sec1 = sec('type', 1, 'Tipo de ejercicio',
       rnd ? `Aleatorio · ${R.count ? pl(R.count, 'escenario', 'escenarios') : 'escenarios sin fin'}` : `Diseñado por ti · ${pl(nPos, 'escenario', 'escenarios')}`,
       seg('mode', rnd ? 'random' : 'design', [
@@ -391,7 +496,7 @@ export function initEditor(app) {
             ${R.walls && R.advance === 'auto' ? `<div class="ed-grid">${numField('random.portDelay', 'La ventana se abre sola a los (0 = nada más aparecer)', R.portDelay ?? 0, 0, 30, 0.1, 's')}</div>` : ''}`,
             R.advance === 'auto' ? 'En automático la ventana se abre sola: no hace falta agacharse delante de la cámara.' : 'Algunos escenarios empiezan tras un muro: agáchate para verlos por la ventana.')}
         </div>`);
-      host.innerHTML = `<div class="ed-panel">${head}<div class="ed-secs">${sec1}${sec2}${secC}${sec3}${sec4}</div></div>`;
+      host.innerHTML = `<div class="ed-panel">${head}<div class="ed-secs">${secSheet}${sec1}${sec2}${secC}${sec3}${sec4}</div></div>`;
       $('#edTry').onclick = () => tryBlock(b);
       return;
     }
@@ -411,10 +516,15 @@ export function initEditor(app) {
         </div>
       </div>
       <div class="ed-sec-cols">
-      ${group('Tiempo para resolver este escenario', `<div class="ed-grid">
-        ${numField('pos.time', 'Segundos', pos.time, 0.5, 60, 0.1, 's')}
-        ${numField('activatorAt', 'El popper activador cae a', pos.activatorAt, 0.5, 10, 0.1, 's')}</div>`,
-        `Cuenta desde que ves el escenario. Al acabar ${pi < n - 1 ? 'sale la flecha del siguiente desplazamiento' : 'suena el beep final'}. El popper activador es el que pone en marcha el móvil (si hay).`)}
+      ${pi < n - 1 && b.positions[pi + 1].advance !== 'auto'
+        ? group('Flecha del siguiente desplazamiento', `<div class="ed-grid">
+          ${numField('pos.arrowAt', 'La flecha sale a los', pos.arrowAt ?? 1, 0.3, 10, 0.1, 's')}
+          ${numField('activatorAt', 'El popper activador cae a', pos.activatorAt, 0.5, 10, 0.1, 's')}</div>`,
+          'Sin límite de tiempo: resuelve el escenario a tu ritmo; la flecha ya te indica hacia dónde ir y el escenario cambia cuando te desplazas. El popper activador es el que pone en marcha el móvil (si hay).')
+        : group(pi < n - 1 ? 'Tiempo para resolver este escenario (automático)' : 'Tiempo para resolver el último escenario', `<div class="ed-grid">
+          ${numField('pos.time', 'Segundos', pos.time, 0.5, 60, 0.1, 's')}
+          ${numField('activatorAt', 'El popper activador cae a', pos.activatorAt, 0.5, 10, 0.1, 's')}</div>`,
+          pi < n - 1 ? 'El siguiente cambio es automático (sin cámara): al acabar este tiempo sale la flecha y el escenario cambia solo.' : 'Cuenta desde que ves el escenario. Al acabar suena el beep final.')}
       ${pi < n - 1 ? group(`Siguiente desplazamiento → P${pi + 2}`, moveFields(pi + 1))
         : group('Siguiente desplazamiento', '<p class="ed-note">Es el último escenario: al acabar su tiempo suena el beep final. Pulsa «＋ Desplazamiento» para añadir otro.</p>')}
       </div></div>`;
@@ -424,7 +534,7 @@ export function initEditor(app) {
       `<div class="ed-steps" id="edPosBar">
           ${startChip}
           ${b.positions.map((p, i) => `${i || b.startMove ? `<span class="ed-step-link ${p.dir}" title="${DIR_LABEL[p.dir]}">${DIR_ARROW[p.dir]}</span>` : ''}
-            <span class="ed-step-wrap"><button class="ed-step ${p.id === selPosId ? 'active' : ''}" data-pos-id="${p.id}"><b>P${i + 1}</b><small>${(+p.time).toLocaleString('es-ES')} s${p.port?.on ? ' · muro' : ''}${(i || b.startMove) && p.advance === 'auto' ? ' · auto' : ''}</small></button>
+            <span class="ed-step-wrap"><button class="ed-step ${p.id === selPosId ? 'active' : ''}" data-pos-id="${p.id}"><b>P${i + 1}</b><small>${b.positions[i + 1] && b.positions[i + 1].advance !== 'auto' ? `flecha ${String(p.arrowAt ?? 1).replace('.', ',')} s` : `${(+p.time).toLocaleString('es-ES')} s`}${p.port?.on ? ' · muro' : ''}${(i || b.startMove) && p.advance === 'auto' ? ' · auto' : ''}</small></button>
             <button class="ed-step-rnd ${p.randomScene ? 'on' : ''}" data-pos-rnd="${p.id}" title="${p.randomScene ? 'Escenario aleatorio en cada repetición (activado)' : 'Hacer que el escenario sea aleatorio en cada repetición'}" aria-pressed="${!!p.randomScene}">🎲</button>${n > 1 ? `<button class="ed-step-del" data-pos-del="${p.id}" title="Eliminar posición ${i + 1}" aria-label="Eliminar posición ${i + 1}">✕</button>` : ''}</span>`).join('')}
           <button class="ed-step add" data-pos="add" title="Añade un desplazamiento y un escenario nuevo">＋ Desplazamiento</button>
         </div>
@@ -434,7 +544,7 @@ export function initEditor(app) {
     const sec5 = sec('scene', 6, `Escenario de la posición ${pi + 1}`,
       `${pos.randomScene ? '🎲 Aleatorio en cada repetición' : pos.layout?.manual ? 'Diseñado a mano' : 'Generado automáticamente'}${pos.port?.on ? ' · con muro y ventana' : ''}`,
       (pos.randomScene ? `<p class="ed-sec-desc ed-sec-desc-pad">🎲 Este escenario es aleatorio: en cada repetición se genera uno nuevo con las cantidades de «Composición». Lo que ves es solo un ejemplo.</p>` : '') + workHTML(pos));
-    host.innerHTML = `<div class="ed-panel">${head}<div class="ed-secs">${sec1}${sec2}${secC}${sec3}${sec4}${sec5}</div></div>`;
+    host.innerHTML = `<div class="ed-panel">${head}<div class="ed-secs">${secSheet}${sec1}${sec2}${secC}${sec3}${sec4}${sec5}</div></div>`;
     mountPreview();
     $('#edTry').onclick = () => tryBlock(b);
   }

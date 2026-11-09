@@ -18,7 +18,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/styles.css?v=20261109-2206">
+<link rel="stylesheet" href="css/styles.css?v=20261109-2347">
 </head>
 <body>
 <header class="topbar">
@@ -159,14 +159,14 @@
         </div>
       </details>
       <details class="man-item">
-        <summary><span class="man-n">4</span><span><b>Entrenamiento rápido: retos</b><small>Repetir mismo escenario con condiciones y dificultad adaptativa</small></span></summary>
+        <summary><span class="man-n">4</span><span><b>Entrenamiento rápido: desafíos</b><small>El mismo escenario con condiciones y dificultad adaptativa</small></span></summary>
         <div class="man-body">
           <p>Sin desplazamientos: el <b>mismo escenario</b> se repite en varias <b>rondas</b>. Cada ronda tiene sus <b>condiciones</b> y un <b>tiempo límite</b>; por ejemplo: 5 repeticiones con mano débil en 10 s, luego con mano fuerte, luego mano débil en 7 s.</p>
           <ol>
-            <li>En Inicio pulsa <b>«Entrenamiento en seco» → «Repetir mismo escenario»</b> y elige un <b>reto</b> en los Ajustes: mano débil progresiva, recarga bajo presión, desde arma descargada, salidas exigentes, reto de competición… o el <b>reto aleatorio progresivo</b>.</li>
+            <li>En Inicio pulsa <b>«Entrenamiento en seco» → «Desafíos»</b> y elige un <b>reto</b> en los Ajustes: mano débil progresiva, recarga bajo presión, desde arma descargada, salidas exigentes, reto de competición… o el <b>reto aleatorio progresivo</b>.</li>
             <li>Antes de cada ronda verás sus condiciones (también abajo en pantalla): <b>mano</b>, <b>posición de salida</b> (manos arriba, arma en la mesa, de espaldas, sentado…) y si hay <b>cambio de cargador obligatorio</b>.</li>
             <li>Cada repetición: «PREPARADO», beep aleatorio, tiempo límite con barra arriba y beep final. Entre repeticiones hay un descanso corto.</li>
-            <li>Al terminar cada ronda, indica <b>qué tal te ha ido</b> (Muy fácil · Bien, justo · Difícil · No llegué) tocando la pantalla o con las teclas 1–4. La app <b>ajusta el nivel</b> (el tiempo) de la siguiente ronda.</li>
+            <li>Al terminar cada ronda, indica <b>cuántos segundos te han sobrado</b> (o «No llegué»). La siguiente ronda se ajusta a <b>tu tiempo + 1 s</b> y la progresión sigue desde ahí: así la app conoce tu nivel real.</li>
             <li>Hay 10 <b>niveles</b>, de Iniciación a Élite. Empiezas fácil; la app recuerda tu nivel y tu <b>mejor marca</b> en cada reto para la próxima vez.</li>
           </ol>
         </div>
@@ -188,6 +188,7 @@
                 <li><b>6 · Escenario</b>: diséñalo a tu gusto (ver el apartado siguiente).</li>
               </ul>
             </li>
+            <li><b>Desde el PDF de una competición:</b> en el Editor pulsa <b>«📄 Importar ejercicios desde PDF»</b> y elige los stages. La app lee la ficha (blancos, no‑shoots, metal, disparos, puntos, salida y condición del arma), coloca los blancos según el dibujo e inventa las posiciones para entrenarlo. En cada ejercicio verás la «Ficha del PDF» con el dibujo original.</li>
             <li>Pulsa <b>«▶ Probar ejercicio»</b> para verlo al momento. Para hacer el entrenamiento completo, elígelo en Inicio o en «En seco».</li>
           </ol>
         </div>
@@ -330,15 +331,16 @@
             </button>
             <button class="dry-tool" id="dryFull" title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
           </div>
-          <div class="dry-rate hidden" id="dryRate" role="dialog" aria-label="¿Qué tal la ronda?">
-            <b>¿Qué tal la ronda?</b>
+          <div class="dry-rate hidden" id="dryRate" role="dialog" aria-label="¿Cuántos segundos te han sobrado?">
+            <b>¿Cuántos segundos te han sobrado?</b>
             <small id="dryRateSub"></small>
-            <div class="dry-rate-btns">
-              <button data-rate="2"><i>1</i>Muy fácil<em>sube 2 niveles</em></button>
-              <button data-rate="1"><i>2</i>Bien, justo<em>sube 1 nivel</em></button>
-              <button data-rate="0"><i>3</i>Difícil, pero lo hice<em>mismo nivel</em></button>
-              <button data-rate="-1" class="fail"><i>4</i>No llegué<em>baja 1 nivel</em></button>
+            <div class="dry-rate-secs">
+              <button data-left="-1" class="fail">No llegué</button>
+              <button data-left="0">0</button><button data-left="0.5">0,5</button><button data-left="1">1</button><button data-left="1.5">1,5</button>
+              <button data-left="2">2</button><button data-left="2.5">2,5</button><button data-left="3">3</button><button data-left="4">4</button>
+              <button data-left="5">5</button><button data-left="6">6 o más</button>
             </div>
+            <small class="dry-rate-hint">La siguiente ronda se ajusta a tu tiempo + 1 s y la progresión sigue desde ahí.</small>
           </div>
           <div class="dry-rotate" aria-hidden="true">⟳ Gira el móvil para verlo más grande</div>
           <video id="dryVideo" playsinline muted class="hidden"></video>
@@ -371,11 +373,23 @@
         <p class="ed-note">Toca uno para editarlo. ↑ ↓ cambian el orden.</p>
       </div>
       <div class="ed-list-foot">
+        <label class="btn small ed-import ed-pdf-btn">📄 Importar ejercicios desde PDF<input type="file" id="edPdf" accept="application/pdf,.pdf" hidden></label>
         <label class="btn small ed-import">⬆ Importar archivo<input type="file" id="edImport" accept=".json,application/json" hidden></label>
         <p class="ed-note">Se guardan en este navegador. Comparte un entrenamiento con el botón «Compartir».</p>
       </div>
     </aside>
     <div class="ed-main" id="edMain"></div>
+  </div>
+  <div class="pdf-dlg hidden" id="pdfDlg" role="dialog" aria-label="Importar ejercicios desde PDF">
+    <div class="pdf-dlg-box">
+      <header><div><b id="pdfTitle">Importar desde PDF</b><small id="pdfSub"></small></div><button class="btn ed-icon-btn" id="pdfClose" aria-label="Cerrar">✕</button></header>
+      <div class="pdf-dlg-body" id="pdfBody"></div>
+      <footer id="pdfFoot" class="hidden">
+        <button class="btn small" id="pdfAll">Seleccionar todos</button>
+        <span class="muted small" id="pdfCount"></span>
+        <button class="btn primary" id="pdfGo">Crear entrenamiento</button>
+      </footer>
+    </div>
   </div>
   <div id="edPark" class="hidden"><canvas id="edCanvas" class="ed-canvas"></canvas></div>
 </section>
@@ -506,6 +520,6 @@
 <div id="modal" class="modal hidden"><div class="modal-box" id="modalBox"></div></div>
 <div id="toast" class="toast"></div>
 
-<script type="module" src="js/app.js?v=20261109-2206"></script>
+<script type="module" src="js/app.js?v=20261109-2347"></script>
 </body>
 </html>
