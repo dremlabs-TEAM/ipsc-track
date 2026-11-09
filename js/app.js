@@ -1,12 +1,12 @@
-import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261108-2328';
-import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261108-2328';
-import * as store from './storage.js?v=20261108-2328';
-import { ShotTimer, beep, audioCtx } from './timer.js?v=20261108-2328';
-import { lineChart } from './charts.js?v=20261108-2328';
-import { initDryFire } from './dryfire.js?v=20261108-2328';
-import { initEditor } from './editor.js?v=20261108-2328';
-import { programFromHash } from './program.js?v=20261108-2328';
-import { VERSION } from './version.js?v=20261108-2328';
+import { METRICS, METRIC_BY_KEY, STYLE_DEFAULTS, DEFAULT_TOLS, STATUS_LABEL, scoreStatus, fmtValue } from './metrics.js?v=20261109-1754';
+import { Analyzer, ClipRecorder, COLORS } from './pose.js?v=20261109-1754';
+import * as store from './storage.js?v=20261109-1754';
+import { ShotTimer, beep, audioCtx } from './timer.js?v=20261109-1754';
+import { lineChart } from './charts.js?v=20261109-1754';
+import { initDryFire } from './dryfire.js?v=20261109-1754';
+import { initEditor } from './editor.js?v=20261109-1754';
+import { programFromHash } from './program.js?v=20261109-1754';
+import { VERSION } from './version.js?v=20261109-1754';
 
 // ---------------- utilidades ----------------
 const $ = (s, r = document) => r.querySelector(s);
@@ -567,6 +567,7 @@ $('#appVersion').textContent = `Versión ${VERSION}`;
 // ================= INICIO =================
 function renderAll() { renderHello(); renderProfile(); loadTimerInputs(); renderTimerHistory(); renderCards($('#liveCards'), null); renderOverall($('#liveOverall'), null); }
 renderAll();
+dry.onShow(); // la app arranca en «En seco»
 navigator.mediaDevices?.enumerateDevices && listCams().catch(() => {});
 window.addEventListener('resize', () => $('#tab-history').classList.contains('active') && renderHistory());
 

@@ -4,12 +4,12 @@
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage } from './course.js?v=20261108-2328';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261108-2328';
-import { Analyzer } from './pose.js?v=20261108-2328';
-import { beep, audioCtx } from './timer.js?v=20261108-2328';
-import * as store from './storage.js?v=20261108-2328';
-import { blockSummary, programDuration, fmtDuration } from './program.js?v=20261108-2328';
+import { randomStage, composeStage, stageFromLayout, lobbyStage } from './course.js?v=20261109-1754';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-1754';
+import { Analyzer } from './pose.js?v=20261109-1754';
+import { beep, audioCtx } from './timer.js?v=20261109-1754';
+import * as store from './storage.js?v=20261109-1754';
+import { blockSummary, programDuration, fmtDuration, migrateProgram } from './program.js?v=20261109-1754';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -54,6 +54,11 @@ const sfx = {
   arrow() { sfx.tick(880); setTimeout(() => sfx.tick(1320), 60); },
 };
 
+// desplazamiento necesario (fracción del ancho de la imagen) según «Corto / Medio / Largo»
+const MOVE_STEP = { 1: 0.05, 2: 0.08, 3: 0.12 };
+let mirrorVotes = 0;
+const topHist = []; // altura de cabeza/hombros reciente (para saber cuándo te agachas)
+
 export function initDryFire(app) {
   const { toast, getProfile, saveProfile } = app;
   const P = () => getProfile().dry;
@@ -69,7 +74,8 @@ export function initDryFire(app) {
   const progSel = $('#dryProgram');
   function freeProgram() {
     const d = P();
-    return { free: true, name: 'Arena libre', blocks: [{ type: 'arena', name: 'Arena libre', moves: d.moves, delay: d.delay, activators: d.activators, restAfter: 0 }] };
+    return { free: true, name: 'Arena libre', blocks: [{ type: 'course', name: 'Arena libre', positions: [], reps: 1, rest: 0, startMode: 'fixed', restAfter: 0, startMove: false, maxTime: 0,
+      random: { on: true, count: d.moves ? d.moves + 1 : 0, time: d.delay ?? 1, activators: d.activators || 'sometimes', advance: d.advance || 'camera', moveDelay: d.moveDelay ?? 1 } }] };
   }
   function fillPrograms(selectId) {
     const list = store.loadPrograms(), cur = selectId ?? progSel.value;
@@ -79,7 +85,8 @@ export function initDryFire(app) {
   }
   function selectedProgram() {
     const id = progSel.value;
-    return id ? store.loadPrograms().find((p) => p.id === id) || freeProgram() : freeProgram();
+    const found = id && store.loadPrograms().find((p) => p.id === id);
+    return found ? migrateProgram(structuredClone(found)) : freeProgram();
   }
   function describe() {
     const p = selectedProgram();
@@ -96,14 +103,14 @@ export function initDryFire(app) {
   $('#dryEdit').onclick = () => app.openEditor?.(progSel.value || null);
 
   // ---------------- ajustes ----------------
-  const binds = { dryCamMode: 'camera', dryMove: 'moveFactor', dryRange: 'range', dryDelay: 'delay', dryMoves: 'moves', dryAct: 'activators', dryVoice: 'voice' };
+  const binds = { dryCamMode: 'camera', dryMove: 'moveFactor', dryRange: 'range', dryDelay: 'delay', dryMoves: 'moves', dryAct: 'activators', dryVoice: 'voice', dryAdvance: 'advance', dryMoveDelay: 'moveDelay' };
   function loadSettings() {
     const d = P();
     for (const [id, k] of Object.entries(binds)) { const el = $(`#${id}`); if (el.type === 'checkbox') el.checked = !!d[k]; else el.value = String(d[k]); }
   }
   for (const [id, k] of Object.entries(binds)) $(`#${id}`).onchange = (e) => {
     const el = e.target;
-    P()[k] = el.type === 'checkbox' ? el.checked : k === 'camera' ? el.value === 'true' : k === 'activators' ? el.value : +el.value;
+    P()[k] = el.type === 'checkbox' ? el.checked : k === 'camera' ? el.value === 'true' : k === 'activators' || k === 'advance' ? el.value : +el.value;
     saveProfile(); describe();
   };
 
@@ -113,9 +120,10 @@ export function initDryFire(app) {
     if (!tabActive() || e.target?.matches?.('input, textarea, select') || !$('#modal').classList.contains('hidden')) return;
     if (e.key === 'ArrowLeft') { keyHeld.left = true; e.preventDefault(); }
     if (e.key === 'ArrowRight') { keyHeld.right = true; e.preventDefault(); }
+    if (e.key === 'ArrowDown') { keyHeld.down = true; e.preventDefault(); }
     if (e.key === 'Escape') { if (stageBox.classList.contains('immersive')) { exitFull(); return; } if (run) stop('DETENIDO'); }
   });
-  window.addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft') keyHeld.left = false; if (e.key === 'ArrowRight') keyHeld.right = false; });
+  window.addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft') keyHeld.left = false; if (e.key === 'ArrowRight') keyHeld.right = false; if (e.key === 'ArrowDown') keyHeld.down = false; });
 
   function say(text) {
     if (!P().voice || !window.speechSynthesis) return;
@@ -206,8 +214,18 @@ export function initDryFire(app) {
     const lm = an.img;
     if (!lm || !cur) { lastPose = null; return; }
     const LS = lm[11], RS = lm[12], LH = lm[23], RH = lm[24];
-    if (Math.min(LS.visibility ?? 1, RS.visibility ?? 1, LH.visibility ?? 1, RH.visibility ?? 1) < 0.5) { lastPose = null; return; }
-    lastPose = { t: performance.now(), x: 1 - (LH.x + RH.x) / 2, sw: Math.abs(LS.x - RS.x) };
+    const vis = (q) => (q.visibility ?? 1) >= 0.3;
+    // punto central del cuerpo: media de los hombros y caderas que se vean (no hace falta verlos todos)
+    const pts = [LS, RS, LH, RH].filter(vis);
+    if (pts.length < 2) { lastPose = null; return; }
+    const cx = pts.reduce((a, q) => a + q.x, 0) / pts.length;
+    const sy = vis(LS) && vis(RS) ? (LS.y + RS.y) / 2 : null;
+    const torso = sy != null && vis(LH) && vis(RH) ? Math.max(0.02, (LH.y + RH.y) / 2 - sy) : lastPose?.torso;
+    // en espejo para que «izquierda» sea tu izquierda (salvo que la cámara ya envíe la imagen invertida)
+    const tops = [lm[0], LS, RS].filter(vis);
+    const top = tops.length ? tops.reduce((a, q) => a + q.y, 0) / tops.length : null;
+    if (top != null) { topHist.push({ t: performance.now(), top }); while (topHist.length > 120) topHist.shift(); }
+    lastPose = { top, t: performance.now(), x: P().mirrored ? cx : 1 - cx, sw: vis(LS) && vis(RS) ? Math.abs(LS.x - RS.x) : lastPose?.sw ?? 0.1, y: sy ?? lastPose?.y, torso };
   }
   function pose() {
     if (P().camera) return lastPose && performance.now() - lastPose.t < 500 ? lastPose : null;
@@ -223,7 +241,12 @@ export function initDryFire(app) {
     document.activeElement?.blur();
     if (!program?.blocks?.length) { toast('Este entrenamiento no tiene ejercicios'); return; }
     audioCtx();
-    const needsMove = program.blocks.some((b) => b.type === 'arena' || b.withMove || (b.type === 'course' && b.positions?.length > 1));
+    // la cámara solo hace falta si algún desplazamiento o muro con ventana se activa con el cuerpo
+    const camMove = (b) => (b.type === 'arena' && b.advance !== 'auto') || (b.type === 'stage' && b.withMove)
+      || (b.type === 'course' && (b.random?.on ? b.random.advance !== 'auto'
+        : (b.positions || []).some((ps, i) => (i > 0 || b.startMove) && ps.advance !== 'auto')));
+    const camPort = (b) => [b, ...(b.positions || [])].some((sc) => sc.port?.on && sc.port.open !== 'auto');
+    const needsMove = program.blocks.some((b) => camMove(b) || camPort(b));
     if (needsMove && P().camera && !(await ensureCamera())) return;
     clearTimers();
     run = {
@@ -238,7 +261,7 @@ export function initDryFire(app) {
   function stop(text) {
     if (!run) return;
     clearTimers(); run.phase = 'done'; run.endAt = performance.now();
-    Object.assign(view, { arrow: null, transition: null, warn: null, timer: null, dim: 0, big: text, sub: '', bigColor: '#d4ff3a' });
+    Object.assign(view, { arrow: null, transition: null, warn: null, timer: null, dim: 0, big: text, sub: '', bigColor: '#d4ff3a', port: null, portHint: false });
     $('#dryStart').textContent = '▶ Empezar';
   }
   $('#dryStart').onclick = () => start();
@@ -251,15 +274,15 @@ export function initDryFire(app) {
   // deja listo (y visible) el primer escenario del ejercicio actual
   function prepareBlock(now) {
     const b = blk();
-    run.rep = 0; run.moves = 0;
+    run.rep = 0; run.moves = 0; view.port = null; view.portHint = false;
     if (b.type === 'arena') {
       run.stage = randomStage(Date.now(), { activators: b.activators, prevTheme: run.stage?.theme ?? -1 });
       view.stage = run.stage;
     } else if (b.type === 'course') {
-      run.posStages = courseStages(b);
+      buildCourse(b);
       run.posIdx = 0;
-      view.stage = run.posStages[0];
-      warm(...run.posStages);
+      view.stage = b.startMove ? run.lobby : run.posStages[0];
+      warm(...run.posStages, run.lobby);
     } else {
       run.repStage = stageForBlock(b, 0);
       run.lobby = lobbyStage(run.repStage.theme);
@@ -286,17 +309,40 @@ export function initDryFire(app) {
 
   // ---- ejercicio «recorrido personalizado» ----
   // escenarios nuevos (popper levantado, móvil en reposo) para cada repetición
-  const courseStages = (b) => b.positions.map((pos) => (pos.layout ? stageFromLayout(pos.layout) : composeStage(pos.comp, Date.now())));
+  function buildCourse(b) {
+    run.posList = []; run.posStages = [];
+    if (b.random?.on) {
+      const n = b.random.count > 0 ? b.random.count : 2; // «sin fin»: se van añadiendo
+      for (let i = 0; i < n; i++) addRandomPos(b);
+    } else {
+      run.posList = b.positions;
+      run.posStages = b.positions.map((pos, i) => (pos.randomScene || !pos.layout ? composeStage(pos.comp, (Date.now() + i * 7919 + Math.floor(Math.random() * 1e6)) >>> 0) : stageFromLayout(pos.layout)));
+    }
+    run.lobby = lobbyStage(run.posStages[0]?.theme ?? 0);
+  }
+  function addRandomPos(b) {
+    const R = b.random, prev = run.posStages[run.posStages.length - 1];
+    run.posList.push({ dir: 'random', time: R.time, advance: R.advance, moveDelay: R.moveDelay, activatorAt: 1, port: null });
+    run.posStages.push(randomStage((Date.now() + run.posStages.length * 7919) >>> 0, { activators: R.activators, prevTheme: prev?.theme ?? -1 }));
+  }
   function startCourseRep(now) {
+    const b = blk();
     startBeep();
     run.startAt ??= now;
-    run.beepAt = now; run.posIdx = 0;
+    run.beepAt = now;
     view.big = null; view.sub = null; view.dim = 0;
-    showPos(now);
+    if (b.startMove) {
+      // empieza en la galería vacía: la flecha sale con el beep y P1 entra al desplazarte
+      run.posIdx = -1; view.stage = run.lobby; view.transition = null; setPort(null, now);
+      const d = run.posList[0]?.dir;
+      showArrow(now, false, d === 'left' ? -1 : d === 'right' ? 1 : 0);
+      setPhase('course-arrow', now);
+    } else { run.posIdx = 0; showPos(now); }
   }
   function showPos(now) {
     view.stage = run.posStages[run.posIdx]; view.transition = null; view.arrow = null;
     run.posShownAt = now; run.actFired = false;
+    setPort(run.posList[run.posIdx]?.port, now);
     setPhase('course-pos', now);
   }
   function endCourseRep(now) {
@@ -306,13 +352,48 @@ export function initDryFire(app) {
     view.timer = null; view.arrow = null; view.transition = null;
     if (run.rep + 1 < b.reps) {
       run.rep++;
-      run.posStages = courseStages(b); run.posIdx = 0;
+      buildCourse(b); run.posIdx = 0;
       run.restUntil = now + b.rest * 1000; run.lastTick = null;
-      view.stage = run.posStages[0];
+      view.stage = b.startMove ? run.lobby : run.posStages[0]; setPort(b.startMove ? null : run.posList[0]?.port, now);
       warm(...run.posStages);
       setPhase('rest', now);
     } else endBlock(now);
   }
+  // ---- muro con ventana baja: el escenario se ve por la ventana al agacharte ----
+  function setPort(cfg, now) {
+    run.portCfg = cfg?.on ? cfg : null; run.portStart = null; run.portDone = !run.portCfg; run.portShownAt = now;
+    view.port = run.portCfg ? { cfg: run.portCfg, p: 0 } : null; view.portHint = false;
+    // altura de pie de referencia: el punto más alto de la cabeza/hombros en los últimos 2,5 s
+    const recent = topHist.filter((h) => h.t >= now - 2500);
+    run.standTop = recent.length ? Math.min(...recent.map((h) => h.top)) : null;
+  }
+  // cuánto te has agachado: 1 = suficiente (la cabeza/hombros bajan ~1/3 del largo del torso)
+  function crouchAmount(p) {
+    if (!p) return 0;
+    if (p.sim) return keyHeld.down ? 1 : 0;
+    if (p.top == null) return 0;
+    if (run.standTop == null || p.top < run.standTop) run.standTop = p.top; // aún de pie: actualiza la referencia
+    const torso = run.torso || p.torso || 0.22;
+    return clamp((p.top - run.standTop) / (0.33 * torso), 0, 1.2);
+  }
+  const crouched = (p) => crouchAmount(p) >= 1;
+  // true = aún tras el muro · 'opened' = acaba de verse el escenario · false = sin muro o ya abierto
+  function portStep(now, p) {
+    const cfg = run.portCfg; if (!cfg || run.portDone) return false;
+    if (run.portStart == null) {
+      const autoAt = run.portShownAt + (cfg.at ?? 2) * 1000;
+      const amount = P().camera ? crouchAmount(p) : keyHeld.down ? 1 : 0;
+      const open = cfg.open === 'auto' ? now >= autoAt : P().camera ? amount >= 1 : keyHeld.down || now >= autoAt;
+      view.portHint = !open && cfg.open !== 'auto' ? { progress: Math.min(1, amount) } : false;
+      if (!open) return true;
+      run.portStart = now; sfx.tick(520, 0.08);
+    }
+    const k = clamp((now - run.portStart) / 450, 0, 1);
+    view.port.p = 1 - Math.pow(1 - k, 3);
+    if (k < 1) return true;
+    run.portDone = true; return 'opened';
+  }
+
   // caída del popper activador al segundo indicado desde que aparece el escenario
   function maybeActivate(st, shownAt, activatorAt, now) {
     if (!st?.act || run.actFired) return;
@@ -341,8 +422,8 @@ export function initDryFire(app) {
     run.beepAt = now; run.actFired = false;
     run.repStage ??= stageForBlock(b, run.rep);
     view.big = null; view.sub = null; view.dim = 0;
-    if (b.withMove) { view.stage = run.lobby; setPhase('rep-move', now); showArrow(now, true); }
-    else { view.stage = run.repStage; run.shownAt = now; setPhase('rep-run', now); }
+    if (b.withMove) { view.stage = run.lobby; setPort(null, now); setPhase('rep-move', now); showArrow(now, true); }
+    else { view.stage = run.repStage; run.shownAt = now; setPort(b.port, now); setPhase('rep-run', now); }
   }
   function endRep(now) {
     const b = blk();
@@ -355,6 +436,7 @@ export function initDryFire(app) {
       run.lobby = lobbyStage(run.repStage.theme);
       run.restUntil = now + b.rest * 1000; run.lastTick = null;
       view.stage = b.withMove ? run.lobby : run.repStage;
+      setPort(b.withMove ? null : b.port, now);
       warm(run.repStage, run.lobby);
       setPhase('rest', now);
     } else endBlock(now);
@@ -380,6 +462,7 @@ export function initDryFire(app) {
   }
 
   function chooseDir(p) {
+    if (!run.T) return Math.random() < 0.5 ? -1 : 1; // sin cámara: al azar
     const T = run.T, x = p ? p.x : run.lastX ?? run.x0, off = x - run.x0;
     const Rm = P().range ? P().range * T : Infinity;
     const can = (d) => Math.abs(off + d * T) <= Rm + 0.35 * T && x + d * T >= 0.03 && x + d * T <= 0.97;
@@ -393,6 +476,7 @@ export function initDryFire(app) {
     const p = pose();
     const dir = forced || chooseDir(p);
     run.arrow = { dir, since: now }; run.origin = p ? p.x : null; run.trigSince = null;
+    if (an) an.maxFps = 30; // respuesta más rápida mientras hay que desplazarse
     view.arrow = run.arrow;
     if (!quiet) sfx.arrow();
     say(dir < 0 ? 'Izquierda' : 'Derecha');
@@ -402,15 +486,31 @@ export function initDryFire(app) {
     if (!p) return false;
     const dir = run.arrow.dir;
     if (run.origin == null) run.origin = p.x;
-    run.origin = dir > 0 ? Math.min(run.origin, p.x) : Math.max(run.origin, p.x);
-    if ((p.x - run.origin) * dir >= run.T) { run.trigSince ??= now; return now - run.trigSince >= 80; }
-    run.trigSince = null; return false;
+    const toward = (p.x - run.origin) * dir;
+    if (toward >= run.T) {
+      run.trigSince ??= now;
+      if (now - run.trigSince >= 60) { mirrorVotes = 0; return true; }
+      return false;
+    }
+    run.trigSince = null;
+    // ¿te mueves claramente al lado contrario? Si pasa dos veces seguidas, la cámara envía la imagen en espejo
+    if (!p.sim && -toward >= run.T * 1.4 && !run.arrow.oppCounted) {
+      run.arrow.oppCounted = true;
+      if (++mirrorVotes >= 2) {
+        mirrorVotes = 0; P().mirrored = !P().mirrored; saveProfile();
+        toast('Tu cámara envía la imagen en espejo: lo he corregido automáticamente', 4500);
+        return true;
+      }
+    }
+    return false;
   }
-  function sweep(now, from, to, dir) {
+  function sweep(now, from, to, dir, toPort = null) {
     clearTimers();
+    if (an) an.maxFps = 15;
     run.moveTimes.push((now - run.arrow.since) / 1000);
-    view.arrow = null;
-    view.transition = { from, to, dir, start: now, dur: 480 };
+    const fromPort = view.port ? { cfg: view.port.cfg, p: view.port.p } : null;
+    view.arrow = null; view.port = null; view.portHint = false;
+    view.transition = { from, to, dir, start: now, dur: 700, fromPort, toPort: toPort?.on ? { cfg: toPort, p: 0 } : null };
     sfx.whoosh();
   }
 
@@ -423,10 +523,13 @@ export function initDryFire(app) {
 
   function info() {
     const prog = run.program, b = blk();
-    if (prog.free) return run.startAt ? `ESCENARIO ${String(run.n).padStart(2, '0')} · ${THEMES[run.stage.theme].name.toUpperCase()}` : null;
+    if (prog.free) {
+      const st = run.posStages?.[Math.max(0, run.posIdx ?? 0)] || run.stage;
+      return run.startAt && st ? `ESCENARIO ${String(Math.max(0, run.posIdx ?? 0) + 1).padStart(2, '0')} · ${THEMES[st.theme].name.toUpperCase()}` : null;
+    }
     let s = `EJ. ${run.bi + 1}/${prog.blocks.length} · ${b.name.toUpperCase()}`;
     if (b.type === 'stage') s += ` · REP ${run.rep + 1}/${b.reps}`;
-    else if (b.type === 'course') s += ` · REP ${run.rep + 1}/${b.reps} · POS ${run.posIdx + 1}/${b.positions.length}`;
+    else if (b.type === 'course') s += ` · REP ${run.rep + 1}/${b.reps} · POS ${Math.max(0, run.posIdx) + 1}/${b.random?.on && !b.random.count ? '∞' : run.posList?.length ?? b.positions.length}`;
     else if (b.moves) s += ` · ${run.moves}/${b.moves}`;
     return s;
   }
@@ -440,9 +543,12 @@ export function initDryFire(app) {
     }
     run.lastStep = now;
     view.info = info();
-    const movePhase = ['scene', 'arrow', 'rep-move', 'course-arrow'].includes(run.phase);
-    view.warn = run.needsMove && P().camera && !p && movePhase ? 'NO TE VEO' : null;
     const b = blk();
+    const movePhase = ['scene', 'arrow', 'rep-move', 'course-arrow'].includes(run.phase);
+    // tiempo máximo total del ejercicio
+    if (b?.type === 'course' && b.maxTime > 0 && run.beepAt != null && ['course-pos', 'course-arrow', 'course-trans'].includes(run.phase)
+      && now - run.beepAt >= b.maxTime * 1000) { view.transition = null; return endCourseRep(now); }
+    view.warn = run.needsMove && P().camera && !p && movePhase ? 'NO TE VEO' : null;
 
     switch (run.phase) {
       case 'setup': {
@@ -453,7 +559,9 @@ export function initDryFire(app) {
         if (run.samples.length >= (p.sim ? 1 : 15)) {
           run.x0 = run.samples.reduce((a, s) => a + s.x, 0) / run.samples.length;
           const sw = run.samples.reduce((a, s) => a + s.sw, 0) / run.samples.length;
-          run.T = Math.max(0.035, P().moveFactor * sw);
+          run.T = MOVE_STEP[P().moveFactor] ?? 0.08; // fracción del ancho de la imagen
+          run.y0 = run.samples.reduce((a, s) => a + (s.y ?? 0), 0) / run.samples.length;
+          run.torso = run.samples.reduce((a, s) => a + (s.torso ?? 0.25), 0) / run.samples.length;
           intro(now);
         }
         return;
@@ -473,7 +581,7 @@ export function initDryFire(app) {
         if (now >= run.sceneAt + b.delay * 1000) { showArrow(now); setPhase('arrow', now); }
         return;
       case 'arrow':
-        if (movedEnough(now, p)) {
+        if (b.advance === 'auto' ? now - run.arrow.since >= (b.moveDelay ?? 1) * 1000 : movedEnough(now, p)) {
           run.next ??= randomStage(Date.now(), { activators: b.activators, prevTheme: run.stage.theme });
           sweep(now, run.stage, run.next, run.arrow.dir);
           setPhase('transition', now);
@@ -493,12 +601,13 @@ export function initDryFire(app) {
       case 'rep-run': {
         const elapsed = now - run.beepAt;
         view.timer = { elapsed: elapsed / 1000, par: b.par };
-        if (run.phase === 'rep-move' && movedEnough(now, p)) { sweep(now, run.lobby, run.repStage, run.arrow.dir); setPhase('rep-trans', now); }
+        if (run.phase === 'rep-move' && movedEnough(now, p)) { sweep(now, run.lobby, run.repStage, run.arrow.dir, b.port); setPhase('rep-trans', now); }
         else if (run.phase === 'rep-trans' && now - view.transition.start >= view.transition.dur) {
-          view.transition = null; view.stage = run.repStage; run.shownAt = now; run.totalMoves++; setPhase('rep-run', now);
+          view.transition = null; view.stage = run.repStage; run.shownAt = now; run.totalMoves++; setPort(b.port, now); setPhase('rep-run', now);
         } else if (run.phase === 'rep-run') {
-          const st = run.repStage;
-          if (st.act && !run.actFired) {
+          const st = run.repStage, ps = portStep(now, p);
+          if (ps === 'opened') run.shownAt = now;
+          if (ps !== true && st.act && !run.actFired) {
             const atMs = b.activatorAt * 1000;
             const sp = atMs < ACT.fallStart ? ACT.fallStart / Math.max(300, atMs) : 1;
             if (now >= run.shownAt + Math.max(0, atMs - ACT.fallStart)) { st.actSpeed = sp; fireActivation(st, now); }
@@ -509,21 +618,31 @@ export function initDryFire(app) {
       }
       // ---------- recorrido personalizado ----------
       case 'course-pos': {
-        const pos = b.positions[run.posIdx];
+        const pos = run.posList[run.posIdx];
+        const ps = portStep(now, p);
+        if (ps === true) { view.timer = b.maxTime ? { elapsed: (now - run.beepAt) / 1000, par: b.maxTime } : null; return; } // aún tras el muro
+        if (ps === 'opened') run.posShownAt = now;
         maybeActivate(run.posStages[run.posIdx], run.posShownAt, pos.activatorAt, now);
-        view.timer = { elapsed: (now - run.posShownAt) / 1000, par: pos.time };
+        view.timer = b.maxTime ? { elapsed: (now - run.beepAt) / 1000, par: b.maxTime } : { elapsed: (now - run.posShownAt) / 1000, par: pos.time };
         if (now >= run.posShownAt + pos.time * 1000) {
-          view.timer = null;
-          const next = b.positions[run.posIdx + 1];
+          if (!b.maxTime) view.timer = null;
+          if (b.random?.on && !b.random.count && run.posIdx + 1 >= run.posList.length) { addRandomPos(b); warm(run.posStages[run.posStages.length - 1]); }
+          const next = run.posList[run.posIdx + 1];
           if (!next) return endCourseRep(now);
           showArrow(now, false, next.dir === 'left' ? -1 : next.dir === 'right' ? 1 : 0);
           setPhase('course-arrow', now);
         }
         return;
       }
-      case 'course-arrow':
-        if (movedEnough(now, p)) { sweep(now, run.posStages[run.posIdx], run.posStages[run.posIdx + 1], run.arrow.dir); setPhase('course-trans', now); }
+      case 'course-arrow': {
+        const nx = run.posList[run.posIdx + 1];
+        if (b.maxTime) view.timer = { elapsed: (now - run.beepAt) / 1000, par: b.maxTime };
+        const curStage = run.posIdx >= 0 ? run.posStages[run.posIdx] : run.lobby;
+        if (nx.advance === 'auto' ? now - run.arrow.since >= (nx.moveDelay ?? 1) * 1000 : movedEnough(now, p)) {
+          sweep(now, curStage, run.posStages[run.posIdx + 1], run.arrow.dir, nx.port); setPhase('course-trans', now);
+        }
         return;
+      }
       case 'course-trans':
         if (now - view.transition.start >= view.transition.dur) { run.posIdx++; run.totalMoves++; showPos(now); }
         return;
@@ -570,12 +689,12 @@ export function initDryFire(app) {
     let html;
     if (!run || run.program.free) {
       const goal = P().moves;
-      html = cell('DESPLAZAMIENTOS', `${run?.moves ?? 0}${goal ? ` / ${goal}` : ''}`) + cell('TIEMPO', `${time.toFixed(1)} s`);
+      html = cell('DESPLAZAMIENTOS', `${run?.totalMoves ?? 0}${goal ? ` / ${goal}` : ''}`) + cell('TIEMPO', `${time.toFixed(1)} s`);
     } else {
       const b = blk(), n = run.program.blocks.length;
       html = cell('EJERCICIO', `${run.bi + 1} / ${n}`)
         + (b.type === 'stage' ? cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`)
-          : b.type === 'course' ? cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`) + cell('POSICIÓN', `${(run.posIdx ?? 0) + 1} / ${b.positions.length}`)
+          : b.type === 'course' ? cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`) + cell('POSICIÓN', `${Math.max(0, run.posIdx ?? 0) + 1} / ${b.random?.on && !b.random.count ? '∞' : run.posList?.length ?? b.positions.length}`)
           : cell('DESPLAZAMIENTOS', `${run.moves}${b.moves ? ` / ${b.moves}` : ''}`))
         + cell('TIEMPO TOTAL', `${time.toFixed(1)} s`);
     }

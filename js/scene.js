@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261108-2328';
+import { rng, PERSPECTIVE } from './course.js?v=20261109-1754';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
@@ -240,7 +240,7 @@ export class StageRenderer {
     if (!force && W === this.W) return;
     this.W = W; this.H = H; this.u = H / 720;
     for (const c of [this.canvas, this.bufA, this.bufB]) { c.width = W; c.height = H; }
-    this.cache = new WeakMap(); this.vig = null;
+    this.cache = new WeakMap(); this.vig = null; this.fence = null;
   }
 
   // --- proyección: lx en metros laterales, y altura en metros, d distancia
@@ -878,6 +878,89 @@ export class StageRenderer {
     this.effects(ctx, stage, now, pts);
   }
 
+  // malla de obra fina (verde oscuro) para las transiciones; se dibuja una vez por tamaño
+  fenceCanvas() {
+    if (this.fence) return this.fence;
+    const { W, H, u } = this, FW = Math.round(W * 1.1);
+    const c = document.createElement('canvas'); c.width = FW; c.height = H;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, '#24553a'); grad.addColorStop(0.5, '#1b4430'); grad.addColorStop(1, '#143524');
+    g.fillStyle = grad; g.fillRect(0, 0, FW, H);
+    // agujeros: rectángulos redondeados más anchos que altos, como la malla de obra
+    const cw = Math.max(10, W / 46), ch = cw * 0.72, strandX = Math.max(2, cw * 0.2), strandY = Math.max(2, ch * 0.26);
+    g.globalCompositeOperation = 'destination-out';
+    for (let y = strandY / 2; y < H; y += ch) {
+      for (let x = strandX / 2; x < FW; x += cw) { roundRect(g, x, y, cw - strandX, ch - strandY, Math.min(cw, ch) * 0.28); g.fill(); }
+    }
+    g.globalCompositeOperation = 'source-atop';
+    // brillo en los hilos para dar volumen
+    g.fillStyle = 'rgba(255,255,255,0.07)';
+    for (let y = 0; y < H; y += ch) g.fillRect(0, y, FW, Math.max(1, strandY * 0.35));
+    g.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let x = 0; x < FW; x += cw) g.fillRect(x + strandX * 0.6, 0, Math.max(1, strandX * 0.4), H);
+    g.globalCompositeOperation = 'source-over';
+    // bordes de la malla un poco más gruesos
+    g.fillStyle = '#123020'; g.fillRect(0, 0, 3 * u, H); g.fillRect(FW - 3 * u, 0, 3 * u, H);
+    this.fence = c; return c;
+  }
+
+  // Muro en primer plano con una ventana baja. p = 0 de pie (la ventana queda abajo, casi fuera de la
+  // vista) · p = 1 agachado (la ventana sube y enmarca el escenario).
+  portWall(ctx, cfg, p) {
+    const { W, H, u } = this;
+    const ww = W * Math.min(0.95, Math.max(0.15, cfg.w ?? 0.55)), wh = H * Math.min(0.7, Math.max(0.08, cfg.h ?? 0.32));
+    const wx = W / 2 + W * Math.max(-0.45, Math.min(0.45, cfg.x ?? 0)) - ww / 2;
+    const yOpen = H * 0.5 - wh / 2, yClosed = H * 0.88;
+    const wy = yClosed + (yOpen - yClosed) * p;
+    const base = { ply: '#b3a387', dark: '#2b3034', wood: '#8a6a44' }[cfg.style] || '#b3a387';
+    ctx.save();
+    ctx.beginPath(); ctx.rect(-4, -4, W + 8, H + 8); ctx.rect(wx, wy, ww, wh);
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, shadeHex(base, 0.06)); g.addColorStop(1, shadeHex(base, -0.2));
+    ctx.fillStyle = g; ctx.fill('evenodd');
+    ctx.clip('evenodd');
+    ctx.globalAlpha = 0.2; ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = pat(ctx, 'noise'); ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    // juntas de los tableros y tornillos
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    for (let x = W / 4; x < W; x += W / 4) ctx.fillRect(x, 0, Math.max(2, 2 * u), H);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    for (let x = W / 8; x < W; x += W / 4) for (let y = H * 0.08; y < H; y += H * 0.22) ctx.fillRect(x, y, 3 * u, 3 * u);
+    ctx.restore();
+    // marco de listones alrededor de la ventana
+    const fw = Math.max(5, 0.018 * H);
+    ctx.fillStyle = '#7a5c38';
+    ctx.fillRect(wx - fw, wy - fw, ww + 2 * fw, fw); ctx.fillRect(wx - fw, wy + wh, ww + 2 * fw, fw);
+    ctx.fillRect(wx - fw, wy, fw, wh); ctx.fillRect(wx + ww, wy, fw, wh);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(wx - fw, wy - fw, ww + 2 * fw, Math.max(1, fw * 0.25));
+    // sombra interior en el borde superior de la ventana
+    const sh = ctx.createLinearGradient(0, wy, 0, wy + wh * 0.25);
+    sh.addColorStop(0, 'rgba(0,0,0,0.38)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sh; ctx.fillRect(wx, wy, ww, wh * 0.25);
+  }
+
+  // aviso centrado arriba (p. ej. «AGÁCHATE»)
+  hintHud(ctx, text, now, progress = null) {
+    const { W, H, u } = this, pulse = 0.5 + 0.5 * Math.sin(now / 220);
+    ctx.save();
+    ctx.font = `700 ${H * 0.06}px Rajdhani, sans-serif`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${H * 0.008}px`;
+    const tw = ctx.measureText(text).width + H * 0.1, th = H * 0.1, x = W / 2 - tw / 2, y = H * 0.06;
+    roundRect(ctx, x, y, tw, th, th / 2); ctx.fillStyle = 'rgba(8,12,18,0.68)'; ctx.fill();
+    ctx.strokeStyle = `rgba(255,197,61,${0.5 + 0.4 * pulse})`; ctx.lineWidth = 1.5 * u; ctx.stroke();
+    ctx.fillStyle = '#ffd36b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(255,190,60,0.7)'; ctx.shadowBlur = this.quality ? 12 * u : 0;
+    ctx.fillText(text, W / 2, y + th / 2 + 1);
+    if (progress != null) { // cuánto te has agachado
+      ctx.shadowBlur = 0;
+      const bw = tw * 0.7, bx = W / 2 - bw / 2, by = y + th + H * 0.015, bh = Math.max(4, H * 0.008);
+      roundRect(ctx, bx, by, bw, bh, bh / 2); ctx.fillStyle = 'rgba(8,12,18,0.7)'; ctx.fill();
+      if (progress > 0.01) { roundRect(ctx, bx, by, bw * Math.min(1, progress), bh, bh / 2); ctx.fillStyle = progress >= 1 ? '#35d07f' : '#ffd36b'; ctx.fill(); }
+    }
+    ctx.restore();
+  }
+
   vignette() {
     if (this.vig) return this.vig;
     const v = document.createElement('canvas'); v.width = this.W; v.height = this.H;
@@ -1009,35 +1092,36 @@ export class StageRenderer {
     ctx.save(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     const tr = view.transition;
     if (tr) {
+      // transición: una malla verde oscura barre la pantalla en el sentido del desplazamiento y
+      // cambia el escenario por detrás de ella
       const p = clamp01((now - tr.start) / tr.dur), e = easeInOut(p);
-      const A = this.bufA.getContext('2d'), B = this.bufB.getContext('2d');
-      this.drawStage(A, tr.from, now); this.drawStage(B, tr.to, now);
-      const off = -tr.dir * e * W, blur = Math.sin(Math.PI * p) * W * 0.018;
-      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-      for (const [cv, base] of [[this.bufA, off], [this.bufB, off + tr.dir * W]]) {
-        ctx.globalAlpha = 1; ctx.drawImage(cv, base, 0);
-        if (blur > 1 && this.quality === 2) { ctx.globalAlpha = 0.28; ctx.drawImage(cv, base - blur, 0); ctx.drawImage(cv, base + blur, 0); }
-      }
-      ctx.globalAlpha = 1;
-      // líneas de velocidad
-      const sp = Math.sin(Math.PI * p);
-      if (sp > 0.05 && this.quality > 0) {
-        const r = rng(Math.floor(now / 40));
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < 26; i++) {
-          const y = r() * H, len = (0.08 + r() * 0.25) * W * sp, x = r() * W;
-          ctx.fillStyle = `rgba(190,235,255,${0.08 * sp})`; ctx.fillRect(x, y, len, Math.max(1, this.u));
-        }
-        ctx.globalCompositeOperation = 'source-over';
-      }
+      const fence = this.fenceCanvas(), FW = fence.width;
+      const xL = tr.dir > 0 ? W - e * (W + FW) : -FW + e * (W + FW); // borde izquierdo de la malla
+      const mid = xL + FW / 2;
+      this.drawStage(ctx, tr.to, now);
+      if (tr.toPort) this.portWall(ctx, tr.toPort.cfg, tr.toPort.p);
+      ctx.save(); ctx.beginPath();
+      if (tr.dir > 0) ctx.rect(0, 0, Math.max(0, mid), H); else ctx.rect(Math.min(W, mid), 0, W, H);
+      ctx.clip();
+      const A = this.bufA.getContext('2d'); this.drawStage(A, tr.from, now);
+      if (tr.fromPort) this.portWall(A, tr.fromPort.cfg, tr.fromPort.p);
+      ctx.drawImage(this.bufA, 0, 0);
+      ctx.restore();
+      // sombra que proyecta la malla y la propia malla
+      const sh = ctx.createLinearGradient(xL - W * 0.05, 0, xL + FW + W * 0.05, 0);
+      sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(0.08, 'rgba(0,0,0,0.28)'); sh.addColorStop(0.92, 'rgba(0,0,0,0.28)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = sh; ctx.fillRect(xL - W * 0.05, 0, FW + W * 0.1, H);
+      ctx.drawImage(fence, xL, 0);
     } else if (view.stage) {
       this.drawStage(ctx, view.stage, now);
     } else { ctx.fillStyle = '#0b0d10'; ctx.fillRect(0, 0, W, H); }
+    if (view.port && !tr) this.portWall(ctx, view.port.cfg, view.port.p);
     ctx.drawImage(this.vignette(), 0, 0);
     if (view.dim) { ctx.fillStyle = `rgba(4,6,10,${view.dim})`; ctx.fillRect(0, 0, W, H); }
     if (view.timer) this.timerHud(ctx, view.timer.elapsed, view.timer.par);
     if (view.info || view.warn) this.infoHud(ctx, view.info || '', view.warn);
     if (view.arrow) this.arrowHud(ctx, view.arrow.dir, view.arrow.since, now);
+    if (view.portHint) this.hintHud(ctx, '↓  AGÁCHATE', now, view.portHint.progress);
     if (view.big) this.centerHud(ctx, view.big, view.sub, view.bigColor);
     ctx.restore();
   }

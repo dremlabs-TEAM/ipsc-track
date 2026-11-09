@@ -7,7 +7,7 @@
 // block (recorrido aleatorio) = { id, type: 'arena', name, moves, delay, activators, restAfter }
 // block (recorrido personalizado) = { id, type: 'course', name, positions: [pos], reps, rest, startMode, restAfter }
 //   pos = { id, dir: 'none'|'left'|'right'|'random' (desplazamiento para llegar), time (s en la posición), activatorAt, comp, layout }
-import { uid } from './storage.js?v=20261108-2328';
+import { uid } from './storage.js?v=20261109-1754';
 
 export const MOVER_LABEL = { none: 'Sin móvil', random: 'Móvil aleatorio', swinger: 'Balancín', drop: 'Drop turner', slider: 'Deslizante', bobber: 'Emergente' };
 export const DIST_LABEL = { close: 'Cerca (6–9 m)', mid: 'Media (7–13 m)', far: 'Lejos (10–18 m)', mixed: 'Mixta' };
@@ -19,15 +19,15 @@ export function newStageBlock() {
       paper: 2, ns: 0, nsTilt: 0, double: 0, doubleNs: 0, styleRandom: false, hard: 0, hardPreset: 'random',
       poppers: 3, popSize: 'full', plates: 0, mover: 'random', moverStyle: 'normal', moverHard: 'none', moverNS: 'none', dist: 'mixed', theme: -1,
     },
-    activatorAt: 1.0, par: 3, reps: 10, rest: 5, startMode: 'fixed', vary: false, withMove: false, restAfter: 10, layout: null,
+    activatorAt: 1.0, par: 3, reps: 10, rest: 5, startMode: 'fixed', vary: false, withMove: false, restAfter: 10, layout: null, port: null,
   };
 }
-const defaultComp = () => ({
+export const defaultComp = () => ({
   paper: 2, ns: 0, nsTilt: 0, double: 0, doubleNs: 0, styleRandom: false, hard: 0, hardPreset: 'random',
   poppers: 1, popSize: 'full', plates: 0, mover: 'none', moverStyle: 'normal', moverHard: 'none', moverNS: 'none', dist: 'mixed', theme: -1,
 });
 export function newCoursePosition(dir = 'right') {
-  return { id: uid(), dir, time: 3, activatorAt: 1.0, comp: defaultComp(), layout: null };
+  return { id: uid(), dir, time: 3, advance: 'camera', moveDelay: 1, activatorAt: 1.0, comp: defaultComp(), layout: null, port: null };
 }
 export function newCourseBlock() {
   return {
@@ -36,22 +36,50 @@ export function newCourseBlock() {
     reps: 3, rest: 15, startMode: 'fixed', restAfter: 10,
   };
 }
+// ---- ejercicio único: secuencia de posiciones (con modo aleatorio global opcional) ----
+export const defaultRandom = () => ({ on: false, count: 6, time: 1, activators: 'sometimes', advance: 'camera', moveDelay: 1 });
+export function newExercise() {
+  const p = newCoursePosition('random');
+  p.comp = { ...p.comp, poppers: 2, mover: 'none' };
+  return { id: uid(), type: 'course', name: 'Ejercicio', positions: [p], reps: 5, rest: 10, startMode: 'fixed', restAfter: 10, startMove: false, maxTime: 0, random: defaultRandom() };
+}
+// Convierte los tipos antiguos (escenario con tiempo / recorrido aleatorio) al ejercicio único
+export function migrateBlock(b) {
+  if (!b) return b;
+  if (b.type === 'stage') {
+    const pos = newCoursePosition(b.withMove ? 'random' : 'none');
+    Object.assign(pos, { time: b.par ?? 3, activatorAt: b.activatorAt ?? 1, comp: b.comp, layout: b.layout, port: b.port || null, randomScene: !!b.vary });
+    return { id: b.id, type: 'course', name: b.name, positions: [pos], reps: b.reps ?? 5, rest: b.rest ?? 5, startMode: b.startMode || 'fixed', restAfter: b.restAfter ?? 10, startMove: !!b.withMove, maxTime: 0, random: defaultRandom() };
+  }
+  if (b.type === 'arena') {
+    return { id: b.id, type: 'course', name: b.name, positions: [newCoursePosition('none')], reps: 1, rest: 10, startMode: 'fixed', restAfter: b.restAfter ?? 10, startMove: false, maxTime: 0,
+      random: { on: true, count: b.moves ? b.moves + 1 : 0, time: b.delay ?? 1, activators: b.activators || 'sometimes', advance: b.advance || 'camera', moveDelay: b.moveDelay ?? 1 } };
+  }
+  if (b.type === 'course') {
+    b.startMove ??= false; b.maxTime ??= 0; b.random = { ...defaultRandom(), ...(b.random || {}) };
+    b.positions.forEach((pp) => { pp.randomScene ??= false; pp.port ??= null; });
+  }
+  return b;
+}
+export function migrateProgram(p) { if (p?.blocks) p.blocks = p.blocks.map(migrateBlock); return p; }
+
 export const DIR_LABEL = { none: 'Inicio', left: '← Izquierda', right: 'Derecha →', random: '↔ Aleatoria' };
 export const DIR_ARROW = { none: '●', left: '←', right: '→', random: '↔' };
 export function newArenaBlock() {
-  return { id: uid(), type: 'arena', name: 'Recorrido con desplazamientos', moves: 10, delay: 1, activators: 'sometimes', restAfter: 10 };
+  return { id: uid(), type: 'arena', name: 'Recorrido con desplazamientos', moves: 10, delay: 1, activators: 'sometimes', advance: 'camera', moveDelay: 1, restAfter: 10 };
 }
 export function newProgram(name = 'Nuevo entrenamiento') {
   const now = Date.now();
-  return { id: uid(), name, notes: '', created: now, updated: now, blocks: [newStageBlock()] };
+  return { id: uid(), name, notes: '', created: now, updated: now, blocks: [newExercise()] };
 }
 export function exampleProgram() {
   const p = newProgram('Ejemplo · Poppers, móvil y recorrido');
-  const course = newCourseBlock();
+  p.blocks[0].name = 'Poppers + móvil'; p.blocks[0].positions[0].comp.mover = 'random'; p.blocks[0].positions[0].time = 3;
+  const course = migrateBlock(newCourseBlock()); course.name = 'Recorrido de 3 posiciones';
   course.positions[1].comp.mover = 'swinger';
   p.blocks.push(course);
-  const b2 = newArenaBlock(); b2.moves = 8;
-  p.blocks.push(b2);
+  const rnd = newExercise(); rnd.name = 'Desplazamientos aleatorios'; rnd.reps = 1; rnd.random = { ...defaultRandom(), on: true, count: 9 };
+  p.blocks.push(rnd);
   return p;
 }
 
@@ -72,8 +100,11 @@ export function compSummary(c) {
 const fmtS = (s) => `${(+s).toLocaleString('es-ES', { maximumFractionDigits: 1 })} s`;
 export function blockSummary(b) {
   if (b.type === 'course') {
+    const extra = `${b.startMove ? ' · empieza desplazándote' : ''}${b.maxTime ? ` · máx. ${fmtS(b.maxTime)}` : ''}`;
+    if (b.random?.on) return `Aleatorio · ${b.random.count ? plural(b.random.count, 'posición', 'posiciones') : 'posiciones sin fin'} · ${b.reps}×${b.reps > 1 ? ` · descanso ${fmtS(b.rest)}` : ''}${extra}`;
     const n = b.positions.length;
-    return `${plural(n, 'posición', 'posiciones')} (${plural(Math.max(0, n - 1), 'desplazamiento', 'desplazamientos')}) · ${b.reps}× · descanso ${fmtS(b.rest)}`;
+    const head = n === 1 ? `${compSummary(b.positions[0].comp)} · ${fmtS(b.positions[0].time)}` : `${plural(n, 'posición', 'posiciones')}`;
+    return `${head} · ${b.reps}×${b.reps > 1 ? ` · descanso ${fmtS(b.rest)}` : ''}${extra}`;
   }
   if (b.type === 'arena') return `${b.moves ? plural(b.moves, 'desplazamiento', 'desplazamientos') : 'Desplazamientos sin fin'} · flecha a ${fmtS(b.delay)}`;
   return `${compSummary(b.comp)} · ${fmtS(b.par)} máx. · ${b.reps}× · descanso ${fmtS(b.rest)}${b.withMove ? ' · con desplazamiento' : ''}`;
@@ -83,7 +114,10 @@ export function blockDuration(b, isLast = false) {
   const tail = isLast ? 0 : Math.max(3, b.restAfter || 0);
   if (b.type === 'arena') return (b.moves || 20) * ((b.delay || 1) + 1.6) + 3 + tail;
   if (b.type === 'course') {
-    const one = b.positions.reduce((t, p) => t + (p.time || 0), 0) + Math.max(0, b.positions.length - 1) * 1.5;
+    let one = b.random?.on ? (b.random.count || 20) * ((b.random.time || 1) + 1.6)
+      : b.positions.reduce((t, p) => t + (p.time || 0), 0) + Math.max(0, b.positions.length - 1) * 1.5;
+    if (b.startMove) one += 1.5;
+    if (b.maxTime) one = Math.min(one, b.maxTime);
     return b.reps * one + Math.max(0, b.reps - 1) * b.rest + 3 + tail;
   }
   return b.reps * b.par + Math.max(0, b.reps - 1) * b.rest + (b.withMove ? b.reps * 1.5 : 0) + 3 + tail;
@@ -127,16 +161,20 @@ export function sanitizeProgram(d) {
   const now = Date.now();
   const blocks = d.blocks.slice(0, 30).map((b) => {
     if (b?.type === 'arena') {
-      return { id: uid(), type: 'arena', name: String(b.name || 'Recorrido').slice(0, 60), moves: num(b.moves, 10, 0, 200), delay: num(b.delay, 1, 0.3, 10), activators: oneOf(b.activators, ['never', 'sometimes', 'always'], 'sometimes'), restAfter: num(b.restAfter, 10, 0, 600) };
+      return { id: uid(), type: 'arena', name: String(b.name || 'Recorrido').slice(0, 60), moves: num(b.moves, 10, 0, 200), delay: num(b.delay, 1, 0.3, 10), activators: oneOf(b.activators, ['never', 'sometimes', 'always'], 'sometimes'), advance: oneOf(b.advance, ['camera', 'auto'], 'camera'), moveDelay: num(b.moveDelay, 1, 0.2, 30), restAfter: num(b.restAfter, 10, 0, 600) };
     }
     if (b?.type === 'course' && Array.isArray(b.positions) && b.positions.length) {
       return {
         id: uid(), type: 'course', name: String(b.name || 'Recorrido').slice(0, 60),
         positions: b.positions.slice(0, 12).map((p, i) => ({
-          id: uid(), dir: i === 0 ? 'none' : oneOf(p?.dir, ['left', 'right', 'random'], 'right'), time: num(p?.time, 3, 0.5, 60),
-          activatorAt: num(p?.activatorAt, 1, 0.5, 10), comp: sanitizeComp(p?.comp), layout: sanitizeLayout(p?.layout),
+          id: uid(), dir: oneOf(p?.dir, ['none', 'left', 'right', 'random'], i === 0 ? 'none' : 'right'), time: num(p?.time, 3, 0.5, 60), randomScene: !!p?.randomScene,
+          advance: oneOf(p?.advance, ['camera', 'auto'], 'camera'), moveDelay: num(p?.moveDelay, 1, 0.2, 30),
+          activatorAt: num(p?.activatorAt, 1, 0.5, 10), comp: sanitizeComp(p?.comp), layout: sanitizeLayout(p?.layout), port: sanitizePort(p?.port),
         })),
         reps: num(b.reps, 3, 1, 100), rest: num(b.rest, 15, 0, 600), startMode: oneOf(b.startMode, ['fixed', 'random'], 'fixed'), restAfter: num(b.restAfter, 10, 0, 600),
+        startMove: !!b.startMove, maxTime: num(b.maxTime, 0, 0, 600),
+        random: { on: !!b.random?.on, count: num(b.random?.count, 6, 0, 200), time: num(b.random?.time, 1, 0.3, 60), activators: oneOf(b.random?.activators, ['never', 'sometimes', 'always'], 'sometimes'),
+          advance: oneOf(b.random?.advance, ['camera', 'auto'], 'camera'), moveDelay: num(b.random?.moveDelay, 1, 0.2, 30) },
       };
     }
     return {
@@ -144,10 +182,10 @@ export function sanitizeProgram(d) {
       comp: sanitizeComp(b?.comp),
       activatorAt: num(b?.activatorAt, 1, 0.5, 10), par: num(b?.par, 3, 0.5, 120), reps: num(b?.reps, 10, 1, 100), rest: num(b?.rest, 5, 0, 600),
       startMode: oneOf(b?.startMode, ['fixed', 'random'], 'fixed'), vary: !!b?.vary, withMove: !!b?.withMove, restAfter: num(b?.restAfter, 10, 0, 600),
-      layout: sanitizeLayout(b?.layout),
+      layout: sanitizeLayout(b?.layout), port: sanitizePort(b?.port),
     };
   });
-  return { id: uid(), name: String(d.name || 'Entrenamiento compartido').slice(0, 80), notes: String(d.notes || '').slice(0, 500), created: now, updated: now, blocks };
+  return migrateProgram({ id: uid(), name: String(d.name || 'Entrenamiento compartido').slice(0, 80), notes: String(d.notes || '').slice(0, 500), created: now, updated: now, blocks });
 }
 
 function sanitizeComp(c = {}) {
@@ -168,4 +206,11 @@ function sanitizeComp(c = {}) {
 function sanitizeLayout(l) {
   if (!l || !Array.isArray(l.items)) return null;
   return { seed: num(l.seed, 1, 0, 1e12), theme: num(l.theme, 0, 0, 4), manual: !!l.manual, items: l.items.slice(0, 60).filter((i) => i && typeof i === 'object') };
+}
+
+export const defaultPort = () => ({ on: true, w: 0.55, h: 0.32, x: 0, style: 'ply', open: 'camera', at: 2 });
+function sanitizePort(pt) {
+  if (!pt || typeof pt !== 'object') return null;
+  return { on: !!pt.on, w: num(pt.w, 0.55, 0.15, 0.95), h: num(pt.h, 0.32, 0.08, 0.7), x: num(pt.x, 0, -0.45, 0.45),
+    style: oneOf(pt.style, ['ply', 'dark', 'wood'], 'ply'), open: oneOf(pt.open, ['camera', 'auto'], 'camera'), at: num(pt.at, 2, 0.2, 60) };
 }

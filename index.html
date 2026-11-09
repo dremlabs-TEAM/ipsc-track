@@ -18,7 +18,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/styles.css?v=20261108-2328">
+<link rel="stylesheet" href="css/styles.css?v=20261109-1754">
 </head>
 <body>
 <header class="topbar">
@@ -27,9 +27,9 @@
     <div><b>IPSC TRACK</b><small id="hello">Configura tu perfil</small></div>
   </div>
   <nav id="tabs">
-    <button data-tab="live" class="active">Cámara</button>
-    <button data-tab="dry">En seco</button>
+    <button data-tab="dry" class="active">En seco</button>
     <button data-tab="editor">Editor</button>
+    <button data-tab="live">Cámara</button>
     <button data-tab="video">Vídeo</button>
     <button data-tab="history">Historial</button>
     <button data-tab="compare">Comparar</button>
@@ -47,7 +47,7 @@
 
 <main>
 <!-- ============ CÁMARA EN DIRECTO ============ -->
-<section id="tab-live" class="tab active">
+<section id="tab-live" class="tab">
   <div class="layout">
     <div class="stage">
       <canvas id="liveCanvas"></canvas>
@@ -87,7 +87,7 @@
 </section>
 
 <!-- ============ ENTRENAMIENTO EN SECO ============ -->
-<section id="tab-dry" class="tab">
+<section id="tab-dry" class="tab active">
   <div class="row between dry-top">
     <div class="row dry-pick">
       <label class="dry-prog-label">Entrenamiento
@@ -124,8 +124,8 @@
       <label>Seguimiento
         <select id="dryCamMode"><option value="true">Cámara (tracking corporal)</option><option value="false">Sin cámara (flechas del teclado)</option></select>
       </label>
-      <label>Desplazamiento necesario para cambiar de escenario
-        <select id="dryMove"><option value="1">Un paso (~40 cm)</option><option value="2">Medio (~80 cm)</option><option value="3">Largo (~1,2 m)</option></select>
+      <label>Cuánto hay que desplazarse para cambiar de escenario
+        <select id="dryMove"><option value="1">Corto (un pequeño paso)</option><option value="2">Medio</option><option value="3">Largo</option></select>
       </label>
       <label>Espacio a cada lado del centro
         <select id="dryRange"><option value="1">1 desplazamiento (habitación pequeña)</option><option value="2">2 desplazamientos (salón / garaje)</option><option value="0">Libre (todo el encuadre)</option></select>
@@ -138,6 +138,12 @@
         </label>
         <label>Poppers que activan móviles
           <select id="dryAct"><option value="never">Nunca</option><option value="sometimes">A veces</option><option value="always">Siempre</option></select>
+        </label>
+        <label>Cambio de escenario
+          <select id="dryAdvance"><option value="camera">Al detectar tu desplazamiento (cámara)</option><option value="auto">Automático (sin cámara)</option></select>
+        </label>
+        <label>Si es automático, cambia a los
+          <select id="dryMoveDelay"><option value="0.5">0,5 s de la flecha</option><option value="1">1 s de la flecha</option><option value="1.5">1,5 s de la flecha</option><option value="2">2 s de la flecha</option><option value="3">3 s de la flecha</option></select>
         </label>
         <label>Número de desplazamientos
           <select id="dryMoves"><option value="10">10</option><option value="20">20</option><option value="40">40</option><option value="0">Sin fin (hasta que pulses Detener)</option></select>
@@ -163,10 +169,12 @@
 <section id="tab-editor" class="tab">
   <div class="ed-layout">
     <aside class="panel ed-list">
-      <div class="row between"><h3>Mis entrenamientos</h3><button class="btn small primary" id="edNew">+ Nuevo</button></div>
+      <div class="row between"><h3>Mis entrenamientos</h3><button class="btn small primary" id="edNew">＋ Nuevo</button></div>
       <div id="edPrograms" class="ed-programs"></div>
-      <label class="btn small">⬆ Importar archivo<input type="file" id="edImport" accept=".json,application/json" hidden></label>
-      <p class="muted small">Se guardan en este navegador. Usa «Compartir» para enviar un entrenamiento a tu equipo con un enlace.</p>
+      <div class="ed-list-foot">
+        <label class="btn small ed-import">⬆ Importar archivo<input type="file" id="edImport" accept=".json,application/json" hidden></label>
+        <p class="ed-note">Se guardan en este navegador. Comparte un entrenamiento con el botón «Compartir».</p>
+      </div>
     </aside>
     <div class="ed-main" id="edMain"></div>
   </div>
@@ -299,6 +307,6 @@
 <div id="modal" class="modal hidden"><div class="modal-box" id="modalBox"></div></div>
 <div id="toast" class="toast"></div>
 
-<script type="module" src="js/app.js?v=20261108-2328"></script>
+<script type="module" src="js/app.js?v=20261109-1754"></script>
 </body>
 </html>

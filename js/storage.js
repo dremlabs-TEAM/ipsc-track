@@ -1,5 +1,5 @@
 // Persistencia local (localStorage) de perfil, sesiones y tiempos del timer.
-import { STYLE_DEFAULTS, DEFAULT_TOLS } from './metrics.js?v=20261108-2328';
+import { STYLE_DEFAULTS, DEFAULT_TOLS } from './metrics.js?v=20261109-1754';
 
 const K = { profile: 'ipsctrack.profile', sessions: 'ipsctrack.sessions', timer: 'ipsctrack.timer', programs: 'ipsctrack.programs' };
 
@@ -18,7 +18,7 @@ export function defaultProfile() {
     refs: { ...STYLE_DEFAULTS.isosceles }, tols: { ...DEFAULT_TOLS },
     refSource: 'default', refDate: null,
     timer: { delayMin: 1.5, delayMax: 4, par: 0, threshold: 0.35, freq: 2800 },
-    dry: { camera: true, moveFactor: 2, range: 1, delay: 1, moves: 20, voice: true, activators: 'sometimes', showCam: null },
+    dry: { camera: true, moveFactor: 2, range: 1, delay: 1, moves: 20, voice: true, activators: 'sometimes', showCam: null, advance: 'camera', moveDelay: 1 },
   };
 }
 

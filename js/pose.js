@@ -1,6 +1,6 @@
 // Detección de pose (MediaPipe) + analizador en tiempo real con overlay del esqueleto.
 import { FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
-import { METRICS, computeFrame, median, POINTS, mid } from './metrics.js?v=20261108-2328';
+import { METRICS, computeFrame, median, POINTS, mid } from './metrics.js?v=20261109-1754';
 
 const WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const MODELS = {
