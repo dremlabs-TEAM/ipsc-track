@@ -1,5 +1,5 @@
 // Persistencia local (localStorage) de perfil, sesiones y tiempos del timer.
-import { STYLE_DEFAULTS, DEFAULT_TOLS } from './metrics.js?v=20261109-2158';
+import { STYLE_DEFAULTS, DEFAULT_TOLS } from './metrics.js?v=20261109-2206';
 
 const K = { profile: 'ipsctrack.profile', sessions: 'ipsctrack.sessions', timer: 'ipsctrack.timer', programs: 'ipsctrack.programs' };
 

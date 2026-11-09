@@ -7,7 +7,7 @@
 // block (recorrido aleatorio) = { id, type: 'arena', name, moves, delay, activators, restAfter }
 // block (recorrido personalizado) = { id, type: 'course', name, positions: [pos], reps, rest, startMode, restAfter }
 //   pos = { id, dir: 'none'|'left'|'right'|'random' (desplazamiento para llegar), time (s en la posición), activatorAt, comp, layout }
-import { uid } from './storage.js?v=20261109-2158';
+import { uid } from './storage.js?v=20261109-2206';
 
 // ---- condiciones de un ejercicio: con qué mano, desde qué posición, recarga obligatoria ----
 export const HAND_LABEL = { free: 'Libre (dos manos)', strong: 'Solo mano fuerte', weak: 'Solo mano débil' };

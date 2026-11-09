@@ -4,12 +4,12 @@
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261109-2158';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-2158';
-import { Analyzer } from './pose.js?v=20261109-2158';
-import { beep, audioCtx } from './timer.js?v=20261109-2158';
-import * as store from './storage.js?v=20261109-2158';
-import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, CHALLENGES, autoRounds, levelName, LEVELS, stageBaseTime, roundTime, condText, defaultCond, defaultRandom } from './program.js?v=20261109-2158';
+import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261109-2206';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-2206';
+import { Analyzer } from './pose.js?v=20261109-2206';
+import { beep, audioCtx } from './timer.js?v=20261109-2206';
+import * as store from './storage.js?v=20261109-2206';
+import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, CHALLENGES, autoRounds, levelName, LEVELS, stageBaseTime, roundTime, condText, defaultCond, defaultRandom } from './program.js?v=20261109-2206';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -536,6 +536,7 @@ export function initDryFire(app) {
   }
   function startCourseRep(now) {
     const b = blk();
+    run.lastDir = 0; // cada repetición empieza hacia un lado al azar
     startBeep();
     run.startAt ??= now;
     run.beepAt = now;
@@ -604,6 +605,7 @@ export function initDryFire(app) {
       run.portStart = now; sfx.tick(520, 0.08);
     }
     const k = clamp((now - run.portStart) / (cfg.open === 'auto' ? 1100 : 700), 0, 1);
+    view.portHint = cfg.open === 'auto' && k < 1 ? { progress: k } : false;
     view.port.p = k; // el marco se queda en pantalla con el escenario (sin «pop»)
     if (k < 1) return true;
     run.portDone = true; return 'opened';
@@ -703,7 +705,8 @@ export function initDryFire(app) {
   }
 
   function chooseDir(p) {
-    if (!run.T) return Math.random() < 0.5 ? -1 : 1; // sin cámara: al azar
+    if (run.lastDir) return -run.lastDir; // siempre de un lado a otro: izquierda, derecha, izquierda…
+    if (!run.T) return Math.random() < 0.5 ? -1 : 1; // sin cámara: la primera, al azar
     const T = run.T, x = p ? p.x : run.lastX ?? run.x0, off = x - run.x0;
     const Rm = P().range ? P().range * T : Infinity;
     const can = (d) => Math.abs(off + d * T) <= Rm + 0.35 * T && x + d * T >= 0.03 && x + d * T <= 0.97;
@@ -716,6 +719,7 @@ export function initDryFire(app) {
   function showArrow(now, quiet = false, forced = 0) {
     const p = pose();
     const dir = forced || chooseDir(p);
+    run.lastDir = dir;
     run.arrow = { dir, since: now }; run.origin = p ? p.x : null; run.trigSince = null;
     if (an) an.maxFps = 30; // respuesta más rápida mientras hay que desplazarse
     view.arrow = run.arrow;

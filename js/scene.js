@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261109-2158';
+import { rng, PERSPECTIVE } from './course.js?v=20261109-2206';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
