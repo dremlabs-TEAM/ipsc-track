@@ -1,6 +1,7 @@
 // Detección de pose (MediaPipe) + analizador en tiempo real con overlay del esqueleto.
 import { FilesetResolver, PoseLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
-import { METRICS, computeFrame, median, POINTS, mid } from './metrics.js?v=20261109-2144';
+import { VERSION } from './version.js?v=20261109-2158';
+import { METRICS, computeFrame, median, POINTS, mid } from './metrics.js?v=20261109-2158';
 
 const WASM = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const MODELS = {
@@ -53,8 +54,11 @@ function emptyStats() {
 
 export class Analyzer {
   // model: fuerza un modelo (p. ej. 'lite' en el entrenamiento en seco) · maxFps: limita las detecciones por segundo
-  constructor({ video, canvas, getProfile, onUpdate, live = false, model = null, maxFps = 0 }) {
+  // useWorker: detecta en un hilo aparte (el dibujo no se bloquea); si no se puede, vuelve al hilo principal
+  constructor({ video, canvas, getProfile, onUpdate, live = false, model = null, maxFps = 0, useWorker = false }) {
     this.video = video; this.canvas = canvas; this.ctx = canvas.getContext('2d');
+    this.useWorker = useWorker && typeof Worker !== 'undefined' && typeof createImageBitmap === 'function';
+    this.worker = null; this.busy = false;
     this.getProfile = getProfile; this.onUpdate = onUpdate; this.live = live;
     this.fixedModel = model; this.maxFps = maxFps; this.lastDetect = 0;
     this.noDraw = false; // true = solo detecta, no pinta la imagen (ahorra CPU si no se muestra)
@@ -67,21 +71,40 @@ export class Analyzer {
 
   async init() {
     const model = this.fixedModel || this.getProfile().model;
-    this.lm = await createLandmarker(model);
-    this.model = model;
+    if (this.useWorker && await this._startWorker(model)) this.model = model;
+    else { this.lm = await createLandmarker(model); this.model = model; }
     if (!this.running) { this.running = true; this._loop(); }
+  }
+
+  // arranca el detector en un Web Worker; false si el navegador no lo admite (se usará el hilo principal)
+  async _startWorker(model) {
+    try {
+      const w = new Worker(new URL(`./pose-worker.js?v=${encodeURIComponent(VERSION)}`, import.meta.url));
+      const ok = await new Promise((res) => {
+        const t = setTimeout(() => res(false), 45000);
+        w.onmessage = (e) => { if (e.data.type === 'ready') { clearTimeout(t); res(true); } else if (e.data.type === 'error') { clearTimeout(t); res(false); } };
+        w.onerror = () => { clearTimeout(t); res(false); };
+        w.postMessage({ type: 'init', model });
+      });
+      if (!ok) { w.terminate(); return false; }
+      w.onmessage = (e) => { if (e.data.type === 'result') { this.busy = false; this._onResult(e.data.landmarks, e.data.world); } };
+      w.onerror = () => { this.busy = false; };
+      this.worker = w;
+      return true;
+    } catch { return false; }
   }
 
   async ensureModel() {
     const model = this.fixedModel || this.getProfile().model;
-    if (this.lm && this.model === model) return;
+    if ((this.lm || this.worker) && this.model === model) return;
+    if (this.worker) { this.worker.terminate(); this.worker = null; if (await this._startWorker(model)) { this.model = model; this.img = this.world = null; return; } }
     const old = this.lm; this.lm = null;
     old?.close();
     this.lm = await createLandmarker(model); this.model = model;
     this.img = this.world = null;
   }
 
-  destroy() { this.running = false; this.lm?.close(); this.lm = null; }
+  destroy() { this.running = false; this.lm?.close(); this.lm = null; this.worker?.terminate(); this.worker = null; }
 
   reset() {
     this.stats = emptyStats();
@@ -114,27 +137,40 @@ export class Analyzer {
     if (c.width !== v.videoWidth || c.height !== v.videoHeight) { c.width = v.videoWidth; c.height = v.videoHeight; }
     const isNew = v.currentTime !== this.lastVT;
     const due = !this.maxFps || this.offline || performance.now() - this.lastDetect >= 1000 / this.maxFps - 2;
-    if (isNew && this.lm && due) {
+    if (isNew && this.worker && !this.offline && due && !this.busy) {
+      // hilo aparte: se envía una copia reducida del fotograma y el resultado llega después (_onResult)
+      this.busy = true; this.lastDetect = performance.now(); this.lastVT = v.currentTime;
+      let ts = performance.now(); if (ts <= this.lastTs) ts = this.lastTs + 1; this.lastTs = ts;
+      const rw = Math.min(v.videoWidth, 384), rh = Math.round((rw * v.videoHeight) / v.videoWidth);
+      createImageBitmap(v, { resizeWidth: rw, resizeHeight: rh, resizeQuality: 'low' })
+        .then((bitmap) => this.worker ? this.worker.postMessage({ type: 'frame', bitmap, ts }, [bitmap]) : (this.busy = false))
+        .catch(() => { this.busy = false; });
+    } else if (isNew && this.lm && due) {
       this.lastDetect = performance.now();
       if (Math.abs(v.currentTime - this.lastVT) > 0.6) { this.img = this.world = null; } // salto (seek): no suavizar
       let ts = performance.now(); if (ts <= this.lastTs) ts = this.lastTs + 1; this.lastTs = ts;
       const r = this.lm.detectForVideo(v, ts);
       this.lastVT = v.currentTime;
-      this._fpsN++;
-      const now = performance.now();
-      if (now - this._fpsT > 1000) { this.fps = Math.round(this._fpsN * 1000 / (now - this._fpsT)); this._fpsN = 0; this._fpsT = now; }
-      if (r.landmarks?.length) {
-        this.img = smooth(this.img, r.landmarks[0]);
-        this.world = smooth(this.world, r.worldLandmarks[0]);
-        this.cur = computeFrame(this.world, this.img, this.getProfile());
-      } else { this.img = this.world = null; this.cur = null; }
-      if (this.accumulate) this._accumulate(this.cur, now);
-      else this._lastAccT = null;
-      for (const col of this.collectors) col(this.cur);
+      this._onResult(r.landmarks?.[0] || null, r.worldLandmarks?.[0] || null);
     }
     if (!this.noDraw) this._draw();
     const now = performance.now();
     if (now - this.lastUpdate > 250) { this.lastUpdate = now; this.onUpdate?.(this); }
+  }
+
+  // resultado de una detección (del hilo principal o del worker)
+  _onResult(landmarks, world) {
+    this._fpsN++;
+    const now = performance.now();
+    if (now - this._fpsT > 1000) { this.fps = Math.round(this._fpsN * 1000 / (now - this._fpsT)); this._fpsN = 0; this._fpsT = now; }
+    if (landmarks && world) {
+      this.img = smooth(this.img, landmarks);
+      this.world = smooth(this.world, world);
+      this.cur = computeFrame(this.world, this.img, this.getProfile());
+    } else { this.img = this.world = null; this.cur = null; }
+    if (this.accumulate) this._accumulate(this.cur, now);
+    else this._lastAccT = null;
+    for (const col of this.collectors) col(this.cur);
   }
 
   _accumulate(cur, now) {

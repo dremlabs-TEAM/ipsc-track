@@ -1,9 +1,9 @@
 // Inicio: presentación, selector de modo de entrenamiento (con los entrenamientos de «En seco») y acceso al manual.
-import { composeStage, finalizeStage, normHalf, kindWidth, THEME_COUNT } from './course.js?v=20261109-2144';
-import { StageRenderer } from './scene.js?v=20261109-2144';
+import { composeStage, finalizeStage, normHalf, kindWidth, THEME_COUNT } from './course.js?v=20261109-2158';
+import { StageRenderer } from './scene.js?v=20261109-2158';
 // (el selector de entrenamientos vive en «En seco»)
-import * as store from './storage.js?v=20261109-2144';
-import { programDuration, fmtDuration, blockSummary, randomPort } from './program.js?v=20261109-2144';
+import * as store from './storage.js?v=20261109-2158';
+import { programDuration, fmtDuration, blockSummary, randomPort } from './program.js?v=20261109-2158';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -52,13 +52,18 @@ export function initHome({ showTab, openDry }) {
   const canvas = $('#homeScene');
   const scene = new StageRenderer(canvas);
   const view = { stage: showcaseStage() };
+  // el siguiente escenario se prepara por trozos mientras se ve el actual (sin tirones en el móvil)
+  let upcoming = null;
+  const prepareNext = () => { upcoming = showcaseStage(view.stage.theme); scene.prewarmSoon(upcoming); };
+  prepareNext();
   let raf = 0, last = 0, cycleAt = performance.now(), dir = 1, n = 0, wall = null;
   const visible = () => tab.classList.contains('active') && document.visibilityState === 'visible';
   function frame(now) {
     raf = 0;
     if (!visible()) return;
     raf = requestAnimationFrame(frame);
-    if (now - last < 33) return; // ~30 fps es suficiente para la portada
+    if (now < pauseUntil || !onScreen) return; // durante el scroll o fuera de la vista no se anima
+    if (now - last < (scene.coarse ? 41 : 33)) return; // ~24 fps en el móvil, ~30 en el PC
     last = now;
     tick(now);
   }
@@ -72,13 +77,15 @@ export function initHome({ showTab, openDry }) {
     const t = now - cycleAt;
     if (!wall && !view.arrow && !view.transition && t > 3200) view.arrow = { dir, since: now };
     if (view.arrow && t > 4600) {
-      const to = showcaseStage(view.stage.theme);
+      const to = upcoming || showcaseStage(view.stage.theme); upcoming = null;
       const port = ++n % 2 ? randomPort('auto', 0) : null;
       view.transition = { from: view.stage, to, dir, start: now, dur: 700, fromPort: view.port ? { cfg: view.port.cfg, p: view.port.p } : null, toPort: port ? { cfg: port, p: 0 } : null };
       view.arrow = null; view.next = to; view.nextPort = port;
     }
     if (view.transition && now - view.transition.start >= view.transition.dur) {
+      scene.forget(view.stage);
       view.stage = view.next; view.transition = null; view.next = null;
+      prepareNext();
       dir = Math.random() < 0.5 ? -1 : 1; cycleAt = now;
       view.port = view.nextPort ? { cfg: view.nextPort, p: 0 } : null;
       if (view.nextPort) { wall = { start: now }; view.stage.actStart = null; }
@@ -89,6 +96,9 @@ export function initHome({ showTab, openDry }) {
     scene.render(view, now);
   }
   const play = () => { if (!raf && visible()) raf = requestAnimationFrame(frame); };
+  let pauseUntil = 0, onScreen = true;
+  window.addEventListener('scroll', () => { pauseUntil = performance.now() + 180; }, { passive: true });
+  if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; }).observe(canvas);
   document.addEventListener('visibilitychange', play);
 
   // ---------------- ¿qué quieres hacer? ----------------

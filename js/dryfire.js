@@ -4,12 +4,12 @@
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261109-2144';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-2144';
-import { Analyzer } from './pose.js?v=20261109-2144';
-import { beep, audioCtx } from './timer.js?v=20261109-2144';
-import * as store from './storage.js?v=20261109-2144';
-import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, CHALLENGES, autoRounds, levelName, LEVELS, stageBaseTime, roundTime, condText, defaultCond, defaultRandom } from './program.js?v=20261109-2144';
+import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261109-2158';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-2158';
+import { Analyzer } from './pose.js?v=20261109-2158';
+import { beep, audioCtx } from './timer.js?v=20261109-2158';
+import * as store from './storage.js?v=20261109-2158';
+import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, CHALLENGES, autoRounds, levelName, LEVELS, stageBaseTime, roundTime, condText, defaultCond, defaultRandom } from './program.js?v=20261109-2158';
 
 const $ = (s, r = document) => r.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -353,7 +353,7 @@ export function initDryFire(app) {
         video.srcObject = stream; await video.play();
       }
       if (!an) {
-        an = new Analyzer({ video, canvas: camCanvas, getProfile, onUpdate: null, model: 'lite', maxFps: 15 });
+        an = new Analyzer({ video, canvas: camCanvas, getProfile, onUpdate: null, model: 'lite', maxFps: 15, useWorker: true });
         an.mirror = true; an.noHud = true;
         $('#modelLoading').classList.remove('hidden');
         try { await an.init(); } finally { $('#modelLoading').classList.add('hidden'); }
@@ -490,7 +490,7 @@ export function initDryFire(app) {
       buildCourse(b);
       run.posIdx = 0;
       view.stage = b.startMove ? run.lobby : run.posStages[0];
-      warm(...run.posStages, run.lobby);
+      warm(...run.posStages.slice(0, 2), run.lobby);
     } else {
       run.repStage = stageForBlock(b, 0);
       run.lobby = lobbyStage(run.repStage.theme);
@@ -549,6 +549,12 @@ export function initDryFire(app) {
     } else { run.posIdx = 0; showPos(now); }
   }
   function showPos(now) {
+    const b = blk();
+    // aleatorio sin fin: siempre hay dos escenarios preparados por delante
+    if (b.random?.on && !b.random.count) while (run.posList.length < run.posIdx + 3) addRandomPos(b);
+    // se preparan solo los dos siguientes y se libera la memoria de los ya usados (móvil)
+    warm(run.posStages[run.posIdx + 1], run.posStages[run.posIdx + 2]);
+    if (run.posIdx >= 1) scene.forget(run.posStages[run.posIdx - 1]);
     view.stage = run.posStages[run.posIdx]; view.transition = null; view.arrow = null;
     run.posShownAt = now; run.actFired = false;
     setPort(run.posList[run.posIdx]?.port, now);
@@ -564,7 +570,7 @@ export function initDryFire(app) {
       buildCourse(b); run.posIdx = 0;
       run.restUntil = now + b.rest * 1000; run.lastTick = null;
       view.stage = b.startMove ? run.lobby : run.posStages[0]; setPort(b.startMove ? null : run.posList[0]?.port, now);
-      warm(...run.posStages);
+      warm(...run.posStages.slice(0, 2));
       setPhase('rest', now);
     } else endBlock(now);
   }
@@ -613,7 +619,7 @@ export function initDryFire(app) {
 
   // ---- ejercicio «recorrido» ----
   // prepara en segundo plano un escenario que se va a mostrar enseguida (evita tirones al cambiar)
-  const warm = (...stages) => timers.push(setTimeout(() => stages.forEach((st) => scene.prewarm(st)), 40));
+  const warm = (...stages) => stages.forEach((st) => scene.prewarmSoon(st));
 
   function startScene(now) {
     run.sceneAt = now; run.stage.actStart = null; run.stage.actSpeed = 1; run.actFired = false;
@@ -957,10 +963,15 @@ export function initDryFire(app) {
     const tb = $('#dryCamToggle'); if (tb.dataset.status !== st) tb.dataset.status = st;
   }
 
+  let lastIdleDraw = 0;
   function tick(now) {
     requestAnimationFrame(tick);
     if (!tabActive() && !(run && run.phase !== 'done')) return; // no gastar GPU fuera de la pestaña
-    if (run && run.phase !== 'done') step(now);
+    const active = run && run.phase !== 'done';
+    if (active) step(now);
+    // parado (antes de empezar o al terminar) no hace falta dibujar a 60 fps: ahorra batería y calor en el móvil
+    if (!active && now - lastIdleDraw < 100) return;
+    lastIdleDraw = now;
     scene.render(view, now);
     updateHud(now);
   }

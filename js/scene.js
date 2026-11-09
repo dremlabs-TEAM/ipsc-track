@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261109-2144';
+import { rng, PERSPECTIVE } from './course.js?v=20261109-2158';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
@@ -230,7 +230,8 @@ export class StageRenderer {
     this.bufA = document.createElement('canvas'); this.bufB = document.createElement('canvas');
     this.W = 0; this.frame = 0;
     // calidad: 2 alta (PC) · 1 media (móvil) · 0 baja. Baja sola si el dispositivo no llega a ~40 fps.
-    this.quality = matchMedia('(pointer: coarse)').matches ? 1 : 2;
+    this.coarse = matchMedia('(pointer: coarse)').matches; // móvil / tableta
+    this.quality = this.coarse ? 1 : 2;
     this.cacheItems = true; // dibuja una sola vez por escenario lo que no se mueve
     this.dtAvg = 16; this.slowSince = null; this.lastNow = 0;
     this.checkSize(true);
@@ -239,12 +240,13 @@ export class StageRenderer {
   checkSize(force = false) {
     const q = this.quality;
     const cw = this.canvas.clientWidth || 1280, dpr = Math.min([1, 1.5, 2][q], window.devicePixelRatio || 1);
-    const maxW = [960, 1280, 1920][q];
+    const maxW = this.coarse ? [800, 1024, 1024][q] : [960, 1280, 1920][q]; // en el móvil, como mucho 1024 px
     const W = Math.round(Math.max(640, Math.min(maxW, cw * dpr)) / 16) * 16, H = (W * 9) / 16;
     if (!force && W === this.W) return;
     this.W = W; this.H = H; this.u = H / 720;
     for (const c of [this.canvas, this.bufA, this.bufB]) { c.width = W; c.height = H; }
     this.cache = new WeakMap(); this.vig = null; this.fence = null;
+    this.jobs = [];
   }
 
   // --- proyección: lx en metros laterales, y altura en metros, d distancia
@@ -972,7 +974,7 @@ export class StageRenderer {
     roundRect(ctx, x, y, tw, th, th / 2); ctx.fillStyle = 'rgba(8,12,18,0.68)'; ctx.fill();
     ctx.strokeStyle = `rgba(255,197,61,${0.5 + 0.4 * pulse})`; ctx.lineWidth = 1.5 * u; ctx.stroke();
     ctx.fillStyle = '#ffd36b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(255,190,60,0.7)'; ctx.shadowBlur = this.quality ? 12 * u : 0;
+    ctx.shadowColor = 'rgba(255,190,60,0.7)'; ctx.shadowBlur = this.quality > 1 ? 12 * u : 0;
     ctx.fillText(text, W / 2, y + th / 2 + 1);
     if (progress != null) { // cuánto te has agachado
       ctx.shadowBlur = 0;
@@ -1016,7 +1018,7 @@ export class StageRenderer {
       const x = base - dir * i * gap;
       const wave = 0.5 + 0.5 * Math.sin(now / 150 - (2 - i) * 1.15);
       ctx.save(); ctx.translate(x, 0);
-      ctx.shadowColor = 'rgba(90,215,255,0.9)'; ctx.shadowBlur = this.quality ? (6 + 14 * wave) * u : 0;
+      ctx.shadowColor = 'rgba(90,215,255,0.9)'; ctx.shadowBlur = this.quality > 1 ? (6 + 14 * wave) * u : 0;
       const cg = ctx.createLinearGradient(-cs, 0, cs, 0); cg.addColorStop(0, '#e8fbff'); cg.addColorStop(1, '#5fd3ff');
       ctx.strokeStyle = cg; ctx.globalAlpha = a * (0.28 + 0.72 * wave);
       ctx.lineWidth = h * 0.13; ctx.lineJoin = 'miter'; ctx.lineCap = 'butt';
@@ -1026,7 +1028,7 @@ export class StageRenderer {
     ctx.globalAlpha = a;
     ctx.font = `700 ${h * 0.4}px Rajdhani, sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${h * 0.08}px`;
-    ctx.shadowColor = 'rgba(90,215,255,0.6)'; ctx.shadowBlur = this.quality ? 10 * u : 0; ctx.fillStyle = '#f2fcff';
+    ctx.shadowColor = 'rgba(90,215,255,0.6)'; ctx.shadowBlur = this.quality > 1 ? 10 * u : 0; ctx.fillStyle = '#f2fcff';
     ctx.fillText(dir < 0 ? 'IZQUIERDA' : 'DERECHA', -dir * h * 0.55, h * 0.03);
     ctx.restore();
   }
@@ -1046,7 +1048,7 @@ export class StageRenderer {
     roundRect(ctx, W / 2 - tw / 2, H * 0.5 - th / 2, tw, th, H * 0.025);
     ctx.fillStyle = 'rgba(8,12,18,0.62)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = u; ctx.stroke();
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = color; ctx.shadowBlur = this.quality ? 18 * u : 0; ctx.fillStyle = color;
+    ctx.shadowColor = color; ctx.shadowBlur = this.quality > 1 ? 18 * u : 0; ctx.fillStyle = color;
     ctx.fillText(big, W / 2, H * 0.5 - (sub ? H * 0.03 : 0));
     if (sub) {
       ctx.shadowBlur = 0; ctx.font = `600 ${ss}px Rajdhani, sans-serif`;
@@ -1090,7 +1092,7 @@ export class StageRenderer {
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, Math.max(3, 5 * u));
     const col = p < 0.7 ? '#d4ff3a' : p < 0.9 ? '#ffc53d' : '#ff5a4f';
-    ctx.shadowColor = col; ctx.shadowBlur = this.quality ? 8 * u : 0; ctx.fillStyle = col; ctx.fillRect(0, 0, W * p, Math.max(3, 5 * u));
+    ctx.shadowColor = col; ctx.shadowBlur = this.quality > 1 ? 8 * u : 0; ctx.fillStyle = col; ctx.fillRect(0, 0, W * p, Math.max(3, 5 * u));
     ctx.shadowBlur = 0;
     ctx.font = `700 ${H * 0.045}px Rajdhani, sans-serif`;
     const txt = `${left.toFixed(1)} s`, tw = ctx.measureText(txt).width + H * 0.04;
@@ -1108,6 +1110,70 @@ export class StageRenderer {
     if (this.cacheItems) c.parts ??= this.buildParts(stage, THEMES[stage.theme], c);
   }
 
+  // libera la memoria de un escenario que ya no se va a mostrar
+  forget(stage) { if (stage) { this.cache.delete(stage); this.jobs = this.jobs.filter((j) => j.stage !== stage); } }
+
+  // Igual que prewarm, pero por trozos pequeños en los huecos libres del navegador (requestIdleCallback):
+  // en el móvil preparar un escenario de golpe congelaba la imagen 50–150 ms.
+  prewarmSoon(stage) {
+    if (!stage || this.cache.get(stage)?.parts || this.jobs.some((j) => j.stage === stage)) return;
+    // la malla verde de las transiciones también se prepara antes de necesitarla
+    if (!this.fence && !this.jobs.some((j) => j.fence)) this.jobs.unshift({ fence: true, W: this.W, it: this.fenceSteps() });
+    this.jobs.push({ stage, W: this.W, it: this.buildSteps(stage) });
+    this.pumpJobs();
+  }
+  *fenceSteps() { this.fenceCanvas(); }
+  *buildSteps(stage) {
+    const { W, H } = this, th = THEMES[stage.theme];
+    let c = this.cache.get(stage);
+    if (!c) {
+      const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+      if (th.outdoor) this.buildOutdoor(bg.getContext('2d'), th, stage.seed); else this.buildIndoor(bg.getContext('2d'), th, stage.seed);
+      yield;
+      const light = document.createElement('canvas'); light.width = W; light.height = H;
+      const glow = document.createElement('canvas'); glow.width = W; glow.height = H;
+      const hasLight = this.buildLighting(light.getContext('2d'), glow.getContext('2d'), th, stage.seed);
+      c = { bg, light: hasLight.dark ? light : null, glow: hasLight.glow ? glow : null };
+      this.cache.set(stage, c);
+      yield;
+    }
+    if (!this.cacheItems || c.parts) return;
+    // mismas capas que buildParts, un elemento por paso
+    const parts = [], dyn = new Set(stage.act ? [stage.popper, stage.mover].filter(Boolean) : []);
+    const layer = () => { const cv = document.createElement('canvas'); cv.width = W; cv.height = H; return { canvas: cv, ctx: cv.getContext('2d') }; };
+    let cur = layer();
+    cur.ctx.drawImage(c.bg, 0, 0);
+    const cablePts = this.cable(cur.ctx, stage, th);
+    yield;
+    for (const it of stage.sorted) {
+      if (dyn.has(it)) { if (cur) parts.push(cur); parts.push({ item: it }); cur = null; }
+      else { cur ??= layer(); this.item(cur.ctx, it, th, stage, 0); yield; }
+    }
+    cur ??= layer();
+    this.faultLine(cur.ctx);
+    if (c.light) cur.ctx.drawImage(c.light, 0, 0);
+    parts.push(cur);
+    if (c.parts) return; // se preparó entre medias al dibujarlo
+    c.cablePts = cablePts; c.baseMerged = true; if (c.light) c.lightMerged = true;
+    c.parts = parts;
+  }
+  pumpJobs() {
+    if (this.pumping) return;
+    this.pumping = true;
+    const idle = window.requestIdleCallback ? (f) => requestIdleCallback(f, { timeout: 250 }) : (f) => setTimeout(() => f({ timeRemaining: () => 6, didTimeout: false }), 20);
+    const run = (dl) => {
+      const until = performance.now() + Math.max(4, Math.min(10, dl.timeRemaining?.() || 6));
+      while (this.jobs.length) {
+        const job = this.jobs[0];
+        if (job.W !== this.W) { this.jobs.shift(); continue; } // cambió el tamaño: ya no sirve
+        if (job.it.next().done) this.jobs.shift();
+        if (performance.now() >= until) break;
+      }
+      if (this.jobs.length) idle(run); else this.pumping = false;
+    };
+    idle(run);
+  }
+
   // Si durante ~2,5 s no se llega a ~40 fps, baja la calidad un escalón (resolución y efectos).
   measure(now) {
     const dt = now - this.lastNow; this.lastNow = now;
@@ -1115,7 +1181,7 @@ export class StageRenderer {
     this.dtAvg = this.dtAvg * 0.94 + dt * 0.06;
     if (this.dtAvg > 25 && this.quality > 0) {
       this.slowSince ??= now;
-      if (now - this.slowSince > 2500) { this.quality--; this.slowSince = null; this.dtAvg = 16; this.checkSize(true); }
+      if (now - this.slowSince > 1200) { this.quality--; this.slowSince = null; this.dtAvg = 16; this.checkSize(true); }
     } else this.slowSince = null;
   }
 
