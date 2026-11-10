@@ -4,15 +4,15 @@
 // configurar cada elemento (tarjetas, poppers, placas, móviles, muros, bidones…).
 import {
   composeStage, stageFromLayout, layoutOf, finalizeStage, PERSPECTIVE, makeStyle, randomKind, TARGET_KINDS, KIND_LABEL, HARD_PRESETS, kindWidth,
-} from './course.js?v=20261109-2347';
-import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261109-2347';
-import { openPdf, readPage } from './pdf-import.js?v=20261109-2347';
-import { stageToExercise } from './pdf-stage.js?v=20261109-2347';
-import * as store from './storage.js?v=20261109-2347';
+} from './course.js?v=20261110-2249';
+import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261110-2249';
+import { openPdf, readPage } from './pdf-import.js?v=20261110-2249';
+import { stageToExercise } from './pdf-stage.js?v=20261110-2249';
+import * as store from './storage.js?v=20261110-2249';
 import {
   newProgram, newExercise, migrateBlock, newCoursePosition, defaultComp, exampleProgram, defaultCond, condText, HAND_LABEL, START_LABEL, blockSummary, blockDuration, programDuration, fmtDuration,
   shareUrl, sanitizeProgram, MOVER_LABEL, DIST_LABEL, DIR_LABEL, DIR_ARROW, defaultPort,
-} from './program.js?v=20261109-2347';
+} from './program.js?v=20261110-2249';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -945,7 +945,7 @@ export function initEditor(app) {
       case 'nsSide': st.ns.side = Number(el.value); if (st.kind === 'ns-tilt') st.ns.angle = Math.abs(st.ns.angle || 22) * st.ns.side; rerender = true; break;
       case 'nsAngle': st.ns.angle = Number(el.value); break;
       case 'mini': it.mini = el.value === 'true'; break;
-      case 'hard': st.hard = el.value === 'none' ? null : { preset: el.value, angle: HARD_PRESETS[el.value].angle, amount: HARD_PRESETS[el.value].amount }; rerender = true; break;
+      case 'hard': st.hard = el.value === 'none' || !HARD_PRESETS[el.value] ? null : { preset: el.value, angle: HARD_PRESETS[el.value].angle, amount: HARD_PRESETS[el.value].amount }; rerender = true; break;
       case 'hardAngle': st.hard.angle = Number(el.value); break;
       case 'hardAmount': st.hard.amount = Number(el.value) / 100; break;
       case 'flip': st.hard.angle = ((st.hard.angle + 360) % 360) - 180; rerender = true; break;

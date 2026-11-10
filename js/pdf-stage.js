@@ -4,10 +4,10 @@
 // · Posiciones (inventadas a partir del plano): los blancos se agrupan de izquierda a derecha y en cada
 //   posición se monta el escenario 2D que se vería desde allí (lado y distancia de cada blanco, no-shoots,
 //   poppers, móvil con su activador, muros y bidones), con su tiempo según los disparos.
-import { detectItems, cropImage } from './pdf-import.js?v=20261109-2347';
-import { newCoursePosition, defaultComp, defaultCond, defaultRandom } from './program.js?v=20261109-2347';
-import { finalizeStage, layoutOf, makeStyle, normHalf, kindWidth } from './course.js?v=20261109-2347';
-import { uid } from './storage.js?v=20261109-2347';
+import { detectItems, cropImage } from './pdf-import.js?v=20261110-2249';
+import { newCoursePosition, defaultComp, defaultCond, defaultRandom } from './program.js?v=20261110-2249';
+import { finalizeStage, layoutOf, makeStyle, normHalf, kindWidth } from './course.js?v=20261110-2249';
+import { uid } from './storage.js?v=20261110-2249';
 
 const THEME = 2;          // «Mediodía»: el aire libre de una competición
 const LIM = 0.94;         // ancho útil de la pantalla (fracción normalizada)

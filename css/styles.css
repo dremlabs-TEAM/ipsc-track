@@ -866,3 +866,66 @@ body.no-scroll { overflow: hidden; }
 .dry-rate-secs button.fail:hover { border-color: var(--bad); background: rgba(255,77,79,.1); }
 .dry-rate-hint { color: var(--muted) !important; font-size: 12px !important; }
 @media (max-width: 640px) { .dry-rate-secs { grid-template-columns: repeat(4, minmax(0, 1fr)); } .dry-rate-secs button { font-size: 17px; padding: 10px 2px; } }
+
+/* ---- Desafíos: entrenador (clases D…GM, progreso, catálogo) ---- */
+.dry-lv { background: var(--c, #5fd3ff); }
+.gx-chs { max-height: none; overflow: visible; }
+.cl-badge { --c: #9aa6b2; display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 5px; border-radius: 6px; font: 700 13px Rajdhani, sans-serif; letter-spacing: .04em; color: #0b0d10; background: var(--c); box-shadow: 0 0 10px color-mix(in srgb, var(--c) 45%, transparent); vertical-align: middle; }
+.cl-badge.lg { min-width: 54px; height: 46px; font-size: 26px; border-radius: 10px; }
+.cl-badge.xl { min-width: 64px; height: 56px; font-size: 32px; border-radius: 12px; }
+.cl-me, .cl-big { display: flex; align-items: center; gap: 14px; }
+.cl-me div, .cl-big div { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.cl-me b { font: 700 22px Rajdhani, sans-serif; letter-spacing: .03em; }
+.cl-big b { font: 700 30px Rajdhani, sans-serif; letter-spacing: .02em; }
+.cl-me span, .cl-big span { color: var(--text); font-size: 13px; }
+.cl-me small { color: var(--muted); font-size: 11.5px; }
+.cl-tip { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; margin-top: 12px; padding: 10px 12px; text-align: left; cursor: pointer; font: inherit; color: var(--text);
+  background: linear-gradient(100deg, rgba(212,255,58,.1), rgba(212,255,58,.02)); border: 1px solid rgba(212,255,58,.35); border-radius: 10px; transition: border-color .15s, background .15s; }
+.cl-tip:hover { border-color: var(--accent); background: rgba(212,255,58,.14); }
+.cl-tip span { font: 700 11px Rajdhani, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+.cl-tip b { font: 700 16px Rajdhani, sans-serif; }
+.cl-tip small { color: var(--muted); font-size: 12px; }
+.cl-cur { display: flex; flex-direction: column; gap: 10px; }
+.cl-gauge { position: relative; display: flex; height: 22px; margin: 18px 0 2px; border-radius: 6px; overflow: visible; }
+.cl-gauge i { position: relative; background: color-mix(in srgb, var(--c) 26%, #12161b); border-right: 1px solid #0b0d10; }
+.cl-gauge i:first-child { border-radius: 6px 0 0 6px; } .cl-gauge i:last-of-type { border-radius: 0 6px 6px 0; border-right: 0; }
+.cl-gauge i b { position: absolute; inset: 0; display: grid; place-items: center; font: 700 11px Rajdhani, sans-serif; letter-spacing: .08em; color: var(--c); }
+.cl-gauge em { position: absolute; top: -7px; bottom: -7px; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #fff; box-shadow: 0 0 8px rgba(255,255,255,.7); }
+.cl-gauge em.best { background: #ffd36b; box-shadow: 0 0 8px rgba(255,211,107,.8); width: 2px; }
+.cl-gauge em.now::before { content: ""; position: absolute; top: -7px; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #fff; }
+.cl-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--muted); }
+.cl-legend i { display: inline-block; width: 10px; height: 3px; margin-right: 5px; vertical-align: middle; border-radius: 2px; background: #fff; }
+.cl-legend i.best { background: #ffd36b; }
+.cl-spark { width: 100%; height: 50px; }
+.cl-spark .line { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.cl-spark .area { fill: rgba(212,255,58,.08); }
+.cl-spark circle { fill: var(--accent); }
+.cl-cat + .cl-cat { margin-top: 12px; }
+.cl-cat h5 { margin: 0 0 6px; font: 700 11px Rajdhani, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.gx-ch em .cl-badge { font-size: 12px; height: 20px; }
+.gx-ch em i { font-size: 11px; }
+.pick-cls { display: flex !important; align-items: center; gap: 6px; margin-top: 6px; font-size: 12.5px; color: var(--text) !important; }
+.dry-rate-secs button { position: relative; }
+.dry-rate-secs kbd { position: absolute; top: 3px; right: 5px; font: 600 9px system-ui, sans-serif; color: var(--muted); opacity: .7; }
+@media (hover: none) { .dry-rate-secs kbd { display: none; } }
+
+/* nivel de progresión (1–10) junto a la clase */
+.dry-lv.lvl { background: #5fd3ff; margin-left: 8px; }
+.dry-lv + .dry-lv { margin-left: 4px; }
+.gx-meter i.next { background: #222a33; outline: 1px dashed rgba(95,211,255,.55); outline-offset: 1px; }
+.lv-goal { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.lv-goal-h { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--text); }
+.lv-goal-h b { font: 700 13px Rajdhani, sans-serif; letter-spacing: .06em; color: #5fd3ff; white-space: nowrap; }
+.lv-bar { height: 8px; border-radius: 4px; background: #222a33; overflow: hidden; }
+.lv-bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #2a9fd0, #5fd3ff); box-shadow: 0 0 10px rgba(95,211,255,.5); }
+.lv-goal small { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.lv-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
+.lv-stats span { display: flex; flex-direction: column; align-items: center; padding: 7px 4px; border-radius: 8px; background: rgba(255,255,255,.03); border: 1px solid var(--line); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.lv-stats b { font: 700 18px Rajdhani, sans-serif; letter-spacing: .02em; color: var(--text); text-transform: none; }
+.cl-big small { color: var(--muted); font-size: 11.5px; }
+.cl-prov { font-style: normal; color: #ffc53d; }
+.cl-row { display: flex; align-items: center; gap: 5px; }
+.cl-row u { text-decoration: none; font: 700 11px Rajdhani, sans-serif; letter-spacing: .08em; color: #5fd3ff; }
+
+  background: rgba(10,12,16,.82); color: #ffb3b4; border: 1.5px solid rgba(255,77,79,.6); font: inherit; text-align: left; backdrop-filter: blur(4px); transition: background .15s, transform .1s; }
+.lv-stats.two { grid-template-columns: repeat(2, 1fr); margin-top: 6px; }

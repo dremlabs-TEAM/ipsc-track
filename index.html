@@ -18,7 +18,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/styles.css?v=20261109-2347">
+<link rel="stylesheet" href="css/styles.css?v=20261110-2249">
 </head>
 <body>
 <header class="topbar">
@@ -159,15 +159,16 @@
         </div>
       </details>
       <details class="man-item">
-        <summary><span class="man-n">4</span><span><b>Entrenamiento rápido: desafíos</b><small>El mismo escenario con condiciones y dificultad adaptativa</small></span></summary>
+        <summary><span class="man-n">4</span><span><b>Desafíos: tu entrenador personal</b><small>19 ejercicios, % respecto a élite y clases D → GM</small></span></summary>
         <div class="man-body">
-          <p>Sin desplazamientos: el <b>mismo escenario</b> se repite en varias <b>rondas</b>. Cada ronda tiene sus <b>condiciones</b> y un <b>tiempo límite</b>; por ejemplo: 5 repeticiones con mano débil en 10 s, luego con mano fuerte, luego mano débil en 7 s.</p>
+          <p>El <b>mismo escenario</b> se repite en varias <b>rondas</b>. Cada ronda tiene sus <b>condiciones</b> y un <b>tiempo límite</b> desde el beep que se adapta a ti y se va apretando. No necesita cámara: los desplazamientos y las ventanas son automáticos.</p>
           <ol>
-            <li>En Inicio pulsa <b>«Entrenamiento en seco» → «Desafíos»</b> y elige un <b>reto</b> en los Ajustes: mano débil progresiva, recarga bajo presión, desde arma descargada, salidas exigentes, reto de competición… o el <b>reto aleatorio progresivo</b>.</li>
+            <li>En Inicio pulsa <b>«Entrenamiento en seco» → «Desafíos»</b>: un <b>entrenador personal</b> con 19 desafíos en 4 grupos. <b>Básicos</b> (desenfunde rápido, desenfunde al móvil, cerca y lejos, transición rápida a plato, Blake Drill), <b>Salidas</b> (con desplazamiento, desplazamiento y móvil, muro con ventana, arma descargada, salidas exigentes), <b>Técnica</b> (mano débil, recargas, metal, no‑shoots, larga distancia) y <b>Competición</b> (El Presidente, reto de competición, reto aleatorio).</li>
+              <li>Antes de cada ronda salen sus <b>instrucciones en grande</b> (salida, mano, desplazamiento, recarga…) y, tras el beep, una etiqueta ámbar abajo.</li>
+              <li>Al acabar cada ronda di <b>cuántos segundos te han sobrado</b> (o «No llegué»). Con tu tiempo se calcula tu <b>% respecto a un tirador de élite en seco</b> y tu <b>clase</b> (D, C, B, A, M, GM). La siguiente ronda se ajusta a tu ritmo con un pequeño margen y sigue apretando.</li>
+              <li>Además, cada desafío tiene <b>10 niveles</b> (Iniciación → Leyenda) que se ganan: para subir necesitas una <b>sesión completa, sin ningún «No llegué»</b> y con la media que pide el nivel. Como mucho, un nivel por sesión. El panel de Ajustes muestra tu nivel, tu clase, tu evolución y qué te conviene entrenar.</li>
             <li>Antes de cada ronda verás sus condiciones (también abajo en pantalla): <b>mano</b>, <b>posición de salida</b> (manos arriba, arma en la mesa, de espaldas, sentado…) y si hay <b>cambio de cargador obligatorio</b>.</li>
             <li>Cada repetición: «PREPARADO», beep aleatorio, tiempo límite con barra arriba y beep final. Entre repeticiones hay un descanso corto.</li>
-            <li>Al terminar cada ronda, indica <b>cuántos segundos te han sobrado</b> (o «No llegué»). La siguiente ronda se ajusta a <b>tu tiempo + 1 s</b> y la progresión sigue desde ahí: así la app conoce tu nivel real.</li>
-            <li>Hay 10 <b>niveles</b>, de Iniciación a Élite. Empiezas fácil; la app recuerda tu nivel y tu <b>mejor marca</b> en cada reto para la próxima vez.</li>
           </ol>
         </div>
       </details>
@@ -331,16 +332,11 @@
             </button>
             <button class="dry-tool" id="dryFull" title="Pantalla completa" aria-label="Pantalla completa">⛶</button>
           </div>
-          <div class="dry-rate hidden" id="dryRate" role="dialog" aria-label="¿Cuántos segundos te han sobrado?">
+          <div class="dry-rate hidden" id="dryAsk" role="dialog" aria-label="¿Cuántos segundos te han sobrado?">
             <b>¿Cuántos segundos te han sobrado?</b>
-            <small id="dryRateSub"></small>
-            <div class="dry-rate-secs">
-              <button data-left="-1" class="fail">No llegué</button>
-              <button data-left="0">0</button><button data-left="0.5">0,5</button><button data-left="1">1</button><button data-left="1.5">1,5</button>
-              <button data-left="2">2</button><button data-left="2.5">2,5</button><button data-left="3">3</button><button data-left="4">4</button>
-              <button data-left="5">5</button><button data-left="6">6 o más</button>
-            </div>
-            <small class="dry-rate-hint">La siguiente ronda se ajusta a tu tiempo + 1 s y la progresión sigue desde ahí.</small>
+            <small id="dryAskSub"></small>
+            <div class="dry-rate-secs" id="dryAskBtns"></div>
+            <small class="dry-rate-hint">De media en la ronda. Con tu tiempo se calcula tu % respecto a un tirador de élite; la siguiente ronda se ajusta a tu ritmo y sigue apretando.</small>
           </div>
           <div class="dry-rotate" aria-hidden="true">⟳ Gira el móvil para verlo más grande</div>
           <video id="dryVideo" playsinline muted class="hidden"></video>
@@ -520,6 +516,6 @@
 <div id="modal" class="modal hidden"><div class="modal-box" id="modalBox"></div></div>
 <div id="toast" class="toast"></div>
 
-<script type="module" src="js/app.js?v=20261109-2347"></script>
+<script type="module" src="js/app.js?v=20261110-2249"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@
 // block (recorrido aleatorio) = { id, type: 'arena', name, moves, delay, activators, restAfter }
 // block (recorrido personalizado) = { id, type: 'course', name, positions: [pos], reps, rest, startMode, restAfter }
 //   pos = { id, dir: 'none'|'left'|'right'|'random' (desplazamiento para llegar), time (s en la posición), activatorAt, comp, layout }
-import { uid } from './storage.js?v=20261109-2347';
+import { uid } from './storage.js?v=20261110-2249';
 
 // ---- condiciones de un ejercicio: con qué mano, desde qué posición, recarga obligatoria ----
 export const HAND_LABEL = { free: 'Libre (dos manos)', strong: 'Solo mano fuerte', weak: 'Solo mano débil' };
@@ -279,7 +279,9 @@ function sanitizeComp(c = {}) {
   c = c || {};
   const paper = num(c.paper, 2, 0, 8);
   const kindOpts = ['normal', 'ns-side', 'ns-tilt', 'double', 'double-ns', 'random'];
-  const hardOpts = ['random', 'diag', 'band', 'corner', 'side', 'top', 'bottom'];
+  const hardOpts = ['random', 'diag', 'band', 'corner', 'side', 'bottom'];
+  if (c.hardPreset === 'top') c = { ...c, hardPreset: 'bottom' };
+  if (c.moverHard === 'top') c = { ...c, moverHard: 'bottom' };
   return {
     paper, ns: num(c.ns, 0, 0, paper), nsTilt: num(c.nsTilt, 0, 0, paper), double: num(c.double, 0, 0, paper), doubleNs: num(c.doubleNs, 0, 0, paper),
     styleRandom: !!c.styleRandom, hard: num(c.hard, 0, 0, paper), hardPreset: oneOf(c.hardPreset, hardOpts, 'random'),

@@ -34,24 +34,37 @@ const MOVER_W = { swinger: 2.5, drop: 2.5, slider: 2.7, bobber: 1.7 };
 // ---------------------------------------------------------------- estilos de tarjeta
 export const TARGET_KINDS = ['normal', 'ns-side', 'ns-tilt', 'double', 'double-ns'];
 export const KIND_LABEL = { normal: 'Normal', 'ns-side': 'No-shoot lateral', 'ns-tilt': 'No-shoot inclinado', double: 'Doble superpuesta', 'double-ns': 'Doble con no-shoot' };
-// cobertura negra: ángulo = dirección hacia la que queda la parte tapada (0° derecha, 90° abajo, -90° arriba)
+// cobertura negra: ángulo = dirección hacia la que queda la parte tapada (0° derecha, 90° abajo).
+// Nunca tapa por arriba: la zona A está en la parte alta de la tarjeta y una cobertura real no la tapa desde arriba.
 export const HARD_PRESETS = {
-  diag: { label: 'Diagonal', angle: 35, amount: 0.5 },
-  band: { label: 'Franja diagonal', angle: 35, amount: 0.6 },
-  corner: { label: 'Esquina', angle: 45, amount: 0.25 },
+  diag: { label: 'Diagonal (abajo)', angle: 35, amount: 0.5 },
+  band: { label: 'Franja central (tapa los lados)', angle: 0, amount: 0.6 },
+  corner: { label: 'Esquina inferior', angle: 45, amount: 0.25 },
   side: { label: 'Lateral', angle: 0, amount: 0.4 },
-  top: { label: 'Arriba', angle: -90, amount: 0.35 },
   bottom: { label: 'Abajo', angle: 90, amount: 0.35 },
 };
+// corrige cualquier cobertura (también las guardadas antes) para que no tape por arriba
+export function safeHard(h) {
+  if (!h) return h;
+  const preset = h.preset === 'top' ? 'bottom' : h.preset;
+  let a = ((((Number(h.angle) || 0) % 360) + 540) % 360) - 180; // (-180, 180]
+  if (h.preset === 'top') a = 90;
+  if (preset === 'band') { a = ((a + 270) % 180) - 90; a = clampN(a, -12, 12); } // tapa los dos lados, nunca arriba y abajo
+  else if (a < -10 && a > -170) a = -a; // apuntaba hacia arriba: se refleja hacia abajo
+  return { ...h, preset, angle: Math.round(a) };
+}
 const KIND_WIDTH = { normal: 0.5, 'ns-side': 0.76, 'ns-tilt': 0.8, double: 0.5, 'double-ns': 0.5 };
 export const kindWidth = (k) => KIND_WIDTH[k] || 0.5;
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export function makeHard(preset, r = Math.random) {
-  if (preset === 'random') preset = Object.keys(HARD_PRESETS)[Math.floor(r() * 6)];
+  if (preset === 'top') preset = 'bottom';
+  const keys = Object.keys(HARD_PRESETS);
+  if (preset === 'random') preset = keys[Math.floor(r() * keys.length)];
   const p = HARD_PRESETS[preset] || HARD_PRESETS.diag;
-  const flip = preset !== 'top' && preset !== 'bottom' && r() < 0.5;
-  return { preset, angle: Math.round(p.angle + (flip ? 180 : 0) + (r() - 0.5) * 16), amount: +clampN(p.amount + (r() - 0.5) * 0.14, 0.12, 0.85).toFixed(2) };
+  // espejo izquierda/derecha (nunca arriba/abajo)
+  const base = preset !== 'bottom' && preset !== 'band' && r() < 0.5 ? 180 - p.angle : p.angle;
+  return safeHard({ preset, angle: Math.round(base + (r() - 0.5) * 16), amount: +clampN(p.amount + (r() - 0.5) * 0.14, 0.12, 0.85).toFixed(2) });
 }
 export function randomKind(r = Math.random) {
   const x = r();

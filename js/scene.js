@@ -1,6 +1,6 @@
 // Render 2.5D de escenarios IPSC (canvas 2D, todo procedural).
 // Diana IPSC (sin cabeza), poppers y placas con medidas del reglamento IPSC Handgun 2024.
-import { rng, PERSPECTIVE } from './course.js?v=20261109-2347';
+import { rng, PERSPECTIVE, safeHard } from './course.js?v=20261110-2249';
 
 const { F, HOR, CAMH, SPREAD } = PERSPECTIVE;
 
@@ -154,6 +154,7 @@ export function stackHeight(st, mini = false) {
 // amount = fracción del ancho de la tarjeta (medido en esa dirección) que queda tapada.
 // preset 'band': tapa los dos extremos y deja visible una franja central.
 function hardCover(ctx, ox, oy, s, sx, h) {
+  h = safeHard(h);
   const a = ((Number(h.angle) || 0) * Math.PI) / 180, amount = Math.min(0.95, Math.max(0.03, Number(h.amount) || 0.4));
   const nx = Math.cos(a), ny = Math.sin(a);
   let lo = Infinity, hi = -Infinity;
@@ -1070,15 +1071,53 @@ export class StageRenderer {
     ctx.restore();
   }
 
-  // condiciones del ejercicio (mano, salida, recarga): etiqueta ámbar abajo, centrada
-  condHud(ctx, text) {
+  // condiciones del ejercicio (mano, salida, recarga): etiqueta ámbar abajo, centrada.
+  // Justo tras el beep sale más grande y se encoge (at = momento del beep)
+  condHud(ctx, text, at, now) {
     const { W, H } = this;
-    ctx.save(); ctx.font = `700 ${H * 0.034}px Rajdhani, sans-serif`;
+    const k = at ? clamp01((now - at) / 900) : 1, s = 1 + 0.45 * (1 - k) * (1 - k);
+    ctx.save(); let fs = H * 0.042 * s;
+    ctx.font = `700 ${fs}px Rajdhani, sans-serif`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${H * 0.004}px`;
-    const label = text.toUpperCase(), w = ctx.measureText(label).width + H * 0.06, h = H * 0.06, x = W / 2 - w / 2, y = H * 0.84;
-    roundRect(ctx, x, y, w, h, h / 2); ctx.fillStyle = 'rgba(8,12,18,0.72)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,197,61,0.75)'; ctx.lineWidth = Math.max(1, H * 0.002); ctx.stroke();
+    const label = text.toUpperCase(); let tw = ctx.measureText(label).width;
+    if (tw > W * 0.72) { fs *= (W * 0.72) / tw; ctx.font = `700 ${fs}px Rajdhani, sans-serif`; tw = ctx.measureText(label).width; }
+    const w = tw + fs * 1.6, h = fs * 1.75, x = W / 2 - w / 2, y = H * 0.875 - h;
+    roundRect(ctx, x, y, w, h, h / 2); ctx.fillStyle = 'rgba(8,12,18,0.78)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,197,61,0.85)'; ctx.lineWidth = Math.max(1.5, H * 0.003); ctx.stroke();
+    ctx.shadowColor = '#ffc53d'; ctx.shadowBlur = this.quality > 1 ? 10 * (1 - k) * H * 0.01 : 0;
     ctx.fillStyle = '#ffd36b'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, W / 2, y + h / 2 + 1);
+    ctx.restore();
+  }
+
+  // instrucciones del ejercicio antes del beep: tarjeta grande arriba (salida, mano, desplazamiento, recarga…)
+  instrHud(ctx, ins, now) {
+    const { W, H, u } = this, lines = ins.lines.map((l) => l.toUpperCase());
+    ctx.save();
+    let fs = H * 0.058;
+    ctx.font = `700 ${fs}px Rajdhani, sans-serif`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${H * 0.003}px`;
+    const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+    if (widest > W * 0.84) fs *= (W * 0.84) / widest;
+    // en pantallas bajas (móvil apaisado) caben menos líneas: se encoge
+    const lh = fs * 1.32, head = H * 0.05, pad = H * 0.03;
+    const maxH = H * 0.27; if (head + lines.length * lh + pad * 2 > maxH) fs *= maxH / (head + lines.length * lh + pad * 2);
+    const LH = fs * 1.32;
+    ctx.font = `700 ${fs}px Rajdhani, sans-serif`;
+    const cw = Math.min(W * 0.94, Math.max(W * 0.42, Math.max(...lines.map((l) => ctx.measureText(l).width)) + fs * 2.6));
+    const ch = head + lines.length * LH + pad * 1.6, x = W / 2 - cw / 2, y = H * 0.095;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 320);
+    roundRect(ctx, x, y, cw, ch, H * 0.022); ctx.fillStyle = 'rgba(10,9,6,0.8)'; ctx.fill();
+    ctx.strokeStyle = `rgba(255,197,61,${0.55 + 0.35 * pulse})`; ctx.lineWidth = Math.max(1.5, 2 * u); ctx.stroke();
+    // franja de aviso a la izquierda
+    ctx.fillStyle = '#ffc53d'; roundRect(ctx, x, y, Math.max(4, H * 0.008), ch, H * 0.004); ctx.fill();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `700 ${H * 0.026}px Rajdhani, sans-serif`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${H * 0.006}px`;
+    ctx.fillStyle = 'rgba(255,211,107,0.75)'; ctx.fillText(`⚠  ${ins.title || 'INSTRUCCIONES'}`, W / 2, y + pad * 0.6 + head * 0.4);
+    ctx.font = `700 ${fs}px Rajdhani, sans-serif`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = `${H * 0.003}px`;
+    ctx.shadowColor = 'rgba(255,197,61,0.7)'; ctx.shadowBlur = this.quality > 1 ? 12 * u : 0; ctx.fillStyle = '#ffd36b';
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, y + pad * 0.6 + head + LH * (i + 0.5)));
     ctx.restore();
   }
 
@@ -1221,7 +1260,8 @@ export class StageRenderer {
     if (view.dim) { ctx.fillStyle = `rgba(4,6,10,${view.dim})`; ctx.fillRect(0, 0, W, H); }
     if (view.timer) this.timerHud(ctx, view.timer.elapsed, view.timer.par);
     if (view.info || view.warn) this.infoHud(ctx, view.info || '', view.warn);
-    if (view.cond && !view.big) this.condHud(ctx, view.cond);
+    if (view.cond && !view.big) this.condHud(ctx, view.cond, view.condAt, now);
+    if (view.instr && view.big) this.instrHud(ctx, view.instr, now);
     if (view.arrow) this.arrowHud(ctx, view.arrow.dir, view.arrow.since, now);
     if (view.portHint) this.hintHud(ctx, '↓  AGÁCHATE', now, view.portHint.progress);
     if (view.big) this.centerHud(ctx, view.big, view.sub, view.bigColor);

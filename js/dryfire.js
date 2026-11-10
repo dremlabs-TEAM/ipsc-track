@@ -4,14 +4,16 @@
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261109-2347';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261109-2347';
-import { Analyzer } from './pose.js?v=20261109-2347';
-import { beep, audioCtx } from './timer.js?v=20261109-2347';
-import * as store from './storage.js?v=20261109-2347';
-import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, CHALLENGES, autoRounds, levelName, LEVELS, stageBaseTime, roundTime, roundTimeF, roundRaw, levelFactor, levelFromFactor, condText, defaultCond, defaultRandom } from './program.js?v=20261109-2347';
+import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261110-2249';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261110-2249';
+import { Analyzer } from './pose.js?v=20261110-2249';
+import { beep, audioCtx } from './timer.js?v=20261110-2249';
+import * as store from './storage.js?v=20261110-2249';
+import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, condText } from './program.js?v=20261110-2249';
+import { DRILLS, DRILL_CATS, drillById, buildDrill, setPar, parFor, instructions, CLASSES, classOf, fmtPct, statOf, recordRound, recordSession, resetDrill, overall, advice, LEVELS, LEVEL_REQ, levelName, PROVISIONAL } from './coach.js?v=20261110-2249';
 
 const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -72,35 +74,29 @@ export function initDryFire(app) {
 
   // ---------------- selección de entrenamiento ----------------
   const progSel = $('#dryProgram');
-  // «Desafíos»: un escenario fijo y rondas con condiciones; el tiempo depende del nivel
+  // «Desafíos»: entrenador personal. Ejercicios clásicos (drills) con rondas y condiciones; el tiempo límite
+  // sale de tu rendimiento (% respecto a un tirador de élite) y se ajusta ronda a ronda.
   let chCache = null;
   const fmtS1 = (v) => String(v).replace('.', ',');
   function challengeProgram() {
-    const d = P(), ch = CHALLENGES.find((c) => c.id === d.challenge) || CHALLENGES[0];
-    const F = d.chFactor?.[ch.id] ?? levelFactor(d.chLevels?.[ch.id] ?? 1);
-    const level = levelFromFactor(F), reps = d.chReps || 5, key = `${ch.id}|${F}|${reps}`;
+    const d = P(), drill = drillById(d.challenge), reps = d.chReps || 5, key = `${drill.id}|${reps}|${statOf(d, drill.id)?.rounds ?? 0}`;
     if (chCache?.key === key) return chCache.prog;
-    const r = Math.random;
-    const comp = { paper: 2 + Math.floor(r() * 2), poppers: 1 + Math.floor(r() * 2), plates: Math.floor(r() * 3), mover: 'none', popSize: 'mixed', dist: 'mid', styleRandom: true, hard: 0 };
-    const stage = composeStage(comp, (Date.now() ^ Math.floor(r() * 1e9)) >>> 0);
-    const layout = layoutOf(stage), base = stageBaseTime(stage);
-    const rounds = ch.rounds || autoRounds();
-    const blocks = rounds.map((rd, i) => {
-      const cond = { ...defaultCond(), hand: rd.hand || 'free', start: rd.start || 'holster', reload: !!rd.reload };
-      return { id: `r${i}`, type: 'course', name: `Ronda ${i + 1} de ${rounds.length}`, tight: rd.tight || 1, cond,
-        positions: [{ id: `p${i}`, dir: 'none', time: roundTimeF(base, cond, rd.tight || 1, F), advance: 'auto', moveDelay: 1, activatorAt: 1, comp, layout, port: null, randomScene: false }],
-        reps, rest: 6, startMode: 'random', restAfter: 12, startMove: false, maxTime: 0, random: defaultRandom() };
-    });
-    const prog = { quick: true, name: ch.name, challenge: { id: ch.id, level, startLevel: level, F, base, ratings: [] }, blocks };
+    const prog = buildDrill(drill, d, reps);
     chCache = { key, prog };
     return prog;
   }
-  const roundLabel = (b) => `${condText(b.cond) || 'Dos manos, desde la funda'} · ${fmtS1(b.positions[0].time)} s`;
+  const instrText = (b) => instructions(b).join(' · ') || 'Dos manos, desde la funda';
+  const roundLabel = (b) => `${instrText(b)} · ${fmtS1(b.par)} s`;
+  // clase (D…GM) de un % con su color
+  const CLS_COL = { GM: '#ff6b9a', M: '#c08bff', A: '#5fd3ff', B: '#d4ff3a', C: '#ffc53d', D: '#9aa6b2' };
+  const clsBadge = (pct, big = '') => { const c = classOf(pct); return `<span class="cl-badge ${big}" style="--c:${CLS_COL[c[0]]}">${c[0]}</span>`; };
+  // «Varios escenarios con desplazamientos»: cámara (por defecto) o automático; sin opción de teclado
+  const movesAuto = () => P().advance === 'auto';
   function freeProgram() {
     const d = P();
     if (d.quickStyle === 'repeat') return challengeProgram();
     return { free: true, name: 'Entrenamiento rápido', blocks: [{ type: 'course', name: 'Entrenamiento rápido', positions: [], reps: 1, rest: 0, startMode: 'fixed', restAfter: 0, startMove: false, maxTime: 0,
-      random: { on: true, count: d.moves ? d.moves + 1 : 0, time: d.delay ?? 1, activators: d.activators || 'sometimes', advance: d.advance || 'camera', moveDelay: d.moveDelay ?? 1, walls: d.walls ?? true, portDelay: d.portDelay ?? 0 } }] };
+      random: { on: true, count: d.moves ? d.moves + 1 : 0, time: d.delay ?? 1, activators: d.activators || 'sometimes', advance: movesAuto() ? 'auto' : 'camera', moveDelay: d.moveDelay ?? 3, walls: d.walls ?? true, portDelay: d.portDelay ?? 0 } }] };
   }
   function fillPrograms(selectId) {
     const list = store.loadPrograms(), cur = selectId ?? progSel.value;
@@ -159,8 +155,9 @@ export function initDryFire(app) {
       </button>
       <button class="pick-card featured alt" data-pick="" data-quick="repeat">
         <span class="pick-ic" aria-hidden="true">${ICONS.repeat}</span>
-        <span class="pick-txt"><small class="pick-tag">Entrenamiento rápido · mismo escenario</small><b>Desafíos</b>
-          <small>Sin desplazamientos: rondas con condiciones (mano débil, arma descargada, recarga…) y tiempo límite. La dificultad se adapta a ti ronda a ronda.</small></span>
+        <span class="pick-txt"><small class="pick-tag">Entrenador personal · ${DRILLS.length} desafíos</small><b>Desafíos</b>
+          <small>Desenfundes, móviles, salidas con desplazamiento, mano débil, recargas, El Presidente… Mide tu % respecto a un tirador de élite y sube de clase (D → GM).</small>
+          ${(() => { const o = overall(P()); return o ? `<span class="pick-cls">${clsBadge(o.pct)} Tu clase: <b>${classOf(o.pct)[2]}</b> · ${fmtPct(o.pct)}</span>` : ''; })()}</span>
         <span class="pick-go">Elegir →</span>
       </button>
       </div>
@@ -189,7 +186,11 @@ export function initDryFire(app) {
   });
   $('#dryBack').onclick = showPicker;
   function select(id, quick) {
-    if (quick) { P().quickStyle = quick; saveProfile(); chCache = null; }
+    if (quick) {
+      const d = P(); d.quickStyle = quick;
+      if (quick === 'moves' && d.advance !== 'auto') d.camera = true; // aquí no hay teclado: la cámara por defecto
+      saveProfile(); chCache = null;
+    }
     fillPrograms(id || '');
     showSession();
   }
@@ -203,6 +204,7 @@ export function initDryFire(app) {
       // antes de empezar se ve el escenario que toca (en los retos, el que se va a repetir)
       const first = p.blocks[0]?.positions?.[0];
       if (mode !== 'moves' && first?.layout) view.stage = stageFromLayout(first.layout);
+      view.info = null; // sin datos de la sesión anterior
       if (!run) Object.assign(view, { big: mode === 'repeat' ? 'RETO' : mode === 'program' ? 'MI ENTRENAMIENTO' : 'ENTRENAMIENTO EN SECO', sub: 'Pulsa «▶ Empezar» cuando estés listo', bigColor: '#d4ff3a', port: null, transition: null, arrow: null });
     }
     $('#dryModeIc').innerHTML = ICONS[mode];
@@ -210,26 +212,28 @@ export function initDryFire(app) {
     $('#dryEdit').classList.toggle('hidden', mode !== 'program');
     let how = [];
     if (mode === 'repeat') {
-      const ch = CHALLENGES.find((c) => c.id === p.challenge.id), L = p.challenge.level, best = P().chBest?.[p.challenge.id];
-      $('#dryModeKicker').textContent = 'Entrenamiento rápido · Desafíos';
-      $('#dryModeTitle').innerHTML = `${esc(ch.name)} <span class="dry-lv">NIVEL ${L} · ${levelName(L).toUpperCase()}</span>`;
-      $('#dryDesc').textContent = `${ch.desc} ${p.blocks.length} rondas de ${p.blocks[0].reps} repeticiones con el mismo escenario${best ? ` · tu mejor marca: nivel ${best}` : ''}.`;
-      $('#dryBlocks').innerHTML = p.blocks.map((b) => `<li><b>${esc(b.name)} · ${b.reps}×</b><span>${esc(condText(b.cond) || 'Dos manos, desde la funda')}</span><em>${fmtS1(b.positions[0].time)} s</em></li>`).join('');
-      how = ['Colócate frente a la pantalla con el arma enfundada (o como indique la condición). <b>Arma descargada y sin munición en la sala.</b>',
-        'Antes de cada ronda verás sus condiciones; también abajo en pantalla mientras tiras.',
-        'Cada repetición: «PREPARADO», beep aleatorio, tiempo límite (barra arriba) y beep final.',
-        'Al acabar cada ronda indica cuántos segundos te han sobrado (o «No llegué»): la siguiente ronda se ajusta a tu tiempo + 1 s y la progresión sigue desde ahí.'];
+      const drill = drillById(p.challenge.id), st = statOf(P(), drill.id);
+      $('#dryModeKicker').textContent = `Desafíos · ${(DRILL_CATS.find(([k]) => k === drill.cat) || [, ''])[1]}`;
+      $('#dryModeTitle').innerHTML = `${esc(drill.name)} <span class="dry-lv lvl">NV ${st?.level ?? 1}</span><span class="dry-lv" style="--c:${st ? CLS_COL[classOf(st.skill)[0]] : '#9aa6b2'}">${st ? `CLASE ${classOf(st.skill)[0]} · ${fmtPct(st.skill)}` : 'SIN CLASIFICAR'}</span>`;
+      $('#dryDesc').textContent = `${drill.desc} ${p.blocks.length} rondas de ${p.blocks[0].reps} repeticiones con el mismo escenario.`;
+      $('#dryBlocks').innerHTML = p.blocks.map((b) => `<li><b>${esc(b.name)} · ${b.reps}×</b><span>${esc(instrText(b))}</span><em>${fmtS1(b.par)} s</em></li>`).join('');
+      how = ['Colócate frente a la pantalla como indique la salida (por defecto, arma enfundada y manos a los costados). <b>Arma descargada y sin munición en la sala.</b>',
+        'Antes de cada ronda verás sus <b>instrucciones en grande</b>: salida, mano, desplazamiento, recarga…',
+        'Cada repetición: «PREPARADO», beep aleatorio, tiempo límite desde el beep (barra arriba) y beep final. No necesita cámara: los desplazamientos y las ventanas son automáticos.',
+        'Durante la ronda no tocas nada. Al acabarla, di <b>cuántos segundos te han sobrado</b> de media (o «No llegué»). La siguiente ronda se ajusta a tu tiempo con un pequeño margen y sigue apretando.',
+        'Tu umbral se compara con el de un tirador de élite en seco: tu <b>%</b> y tu clase (D, C, B, A, M, GM).',
+        'Para subir de <b>nivel</b> (1–10) termina la sesión completa con el umbral que pide el siguiente nivel. Como mucho, un nivel por sesión.'];
     } else if (mode === 'moves') {
       const d = P();
       $('#dryModeKicker').textContent = 'Entrenamiento rápido';
       $('#dryModeTitle').textContent = 'Varios escenarios con desplazamientos';
-      $('#dryDesc').textContent = `Escenarios aleatorios${d.walls ? ', algunos tras un muro con ventana' : ''}. ${d.moves ? `${d.moves} desplazamientos` : 'Desplazamientos sin fin'} · flecha a los ${fmtS1(d.delay)} s · ${d.advance === 'auto' ? 'cambio automático, sin cámara' : d.camera ? 'detección con cámara' : 'con el teclado'}.`;
+      $('#dryDesc').textContent = `Escenarios aleatorios${d.walls ? ', algunos tras un muro con ventana' : ''}. ${d.moves ? `${d.moves} desplazamientos` : 'Desplazamientos sin fin'} · flecha a los ${fmtS1(d.delay)} s · ${movesAuto() ? `cambio automático a los ${fmtS1(d.moveDelay ?? 3)} s, sin cámara` : 'detección con cámara'}.`;
       $('#dryBlocks').innerHTML = '';
-      how = d.advance === 'auto'
+      how = movesAuto()
         ? ['Pulsa «Empezar». Sale el escenario y suena el beep: resuélvelo en seco.', 'Sale una flecha y el escenario cambia solo a los segundos indicados.', 'Los muros con ventana se abren solos: la ventana se acerca hasta enmarcar el escenario.']
         : ['Coloca la cámara a 3–4 m, a la altura del pecho, y sal de cuerpo entero. <b>Arma descargada y sin munición en la sala.</b>',
           'Pulsa «Empezar» y quédate quieto en el centro mientras te calibra.', 'Sale el escenario y suena el beep. Al poco aparece una flecha: desplázate a ese lado y cambia el escenario.',
-          'Si aparece un muro con ventana, agáchate para ver el escenario.', d.camera ? 'Sin cámara a mano: cambia la detección a «Teclado» (← → para desplazarte, ↓ para agacharte).' : 'Teclado: mantén ← o → para desplazarte y ↓ para agacharte.'];
+          'Si aparece un muro con ventana, agáchate para ver el escenario.', 'Sin cámara a mano: cambia la detección a «Automático» y el escenario cambiará solo.'];
     } else {
       $('#dryModeKicker').textContent = 'Mi entrenamiento';
       $('#dryModeTitle').textContent = p.name;
@@ -251,15 +255,16 @@ export function initDryFire(app) {
   const grow = (label, ctl, hint = '') => `<div class="gx-row"><span class="gx-lbl">${label}</span>${ctl}${hint ? `<small class="gx-hint">${hint}</small>` : ''}</div>`;
   const secs = (v) => `${fmtS1(v)} s`;
   function detectionSec(withAuto) {
-    const d = P(), det = withAuto && d.advance === 'auto' ? 'auto' : d.camera ? 'camera' : 'keys';
-    const opts = [['camera', '📷 Cámara'], ['keys', '⌨ Teclado']]; if (withAuto) opts.push(['auto', '⏱ Automático']);
+    const d = P(), det = withAuto ? (movesAuto() ? 'auto' : 'camera') : d.camera ? 'camera' : 'keys';
+    // en «Varios escenarios» solo cámara o automático; en «Mis entrenamientos», cámara o teclado
+    const opts = withAuto ? [['camera', '📷 Cámara'], ['auto', '⏱ Automático']] : [['camera', '📷 Cámara'], ['keys', '⌨ Teclado']];
     const hint = det === 'auto' ? 'Sin cámara: el escenario cambia solo y las ventanas se abren solas.'
       : det === 'camera' ? 'La cámara detecta cuándo te desplazas y cuándo te agachas.' : 'Mantén ← o → para desplazarte y ↓ para agacharte.';
     let body = gseg('detect', det, opts) + `<small class="gx-hint">${hint}</small>`;
     if (det === 'camera') body += grow('Desplazamiento necesario', gseg('moveFactor', d.moveFactor, [[1, 'Corto'], [2, 'Medio'], [3, 'Largo']]));
     if (det !== 'auto') body += grow('Espacio a cada lado', gseg('range', d.range, [[1, '1 paso'], [2, '2 pasos'], [0, 'Libre']]), 'Para que la flecha no te saque de tu zona.');
     if (det === 'auto') {
-      body += grow('Cambio de escenario', gstep('moveDelay', d.moveDelay ?? 1, 0.5, 3, 0.5, (v) => `${fmtS1(v)} s tras la flecha`));
+      body += grow('Cambio de escenario', gstep('moveDelay', d.moveDelay ?? 3, 0.5, 5, 0.5, (v) => `${fmtS1(v)} s tras la flecha`));
       if (d.walls) body += grow('Ventana del muro', gstep('portDelay', d.portDelay ?? 0, 0, 3, 0.5, (v) => (v ? `se abre a los ${fmtS1(v)} s` : 'al aparecer')));
     }
     return gsec('cam', 'Detección', body);
@@ -276,18 +281,9 @@ export function initDryFire(app) {
         + gtog('walls', d.walls, 'Muros con ventana', 'Algunos escenarios empiezan tras un muro: agáchate para verlos.'));
       html += gsec('sound', 'Avisos', gtog('voice', d.voice, 'Dirección por voz', 'Dice «izquierda» o «derecha» al salir la flecha.'));
     } else if (mode === 'repeat') {
-      const cur = CHALLENGES.find((c) => c.id === d.challenge) || CHALLENGES[0], L = d.chLevels?.[cur.id] ?? 1, best = d.chBest?.[cur.id];
-      html += gsec('trophy', 'Reto', `<div class="gx-chs">${CHALLENGES.map((c) => {
-        const lv = d.chLevels?.[c.id], bs = d.chBest?.[c.id];
-        return `<button type="button" class="gx-ch ${c.id === cur.id ? 'on' : ''}" data-ch="${c.id}"><span><b>${esc(c.name)}</b><small>${esc(c.desc)}</small></span><em>${lv ? `NV ${lv}` : 'NUEVO'}${bs ? `<i>★ ${bs}</i>` : ''}</em></button>`;
-      }).join('')}</div>`);
-      html += gsec('sliders', 'Nivel',
-        `<div class="gx-level"><div class="gx-meter">${Array.from({ length: LEVELS }, (_, i) => `<i class="${i < L ? 'on' : ''} ${best && i === best - 1 ? 'best' : ''}" style="--k:${i / (LEVELS - 1)}"></i>`).join('')}</div>
-          <div class="gx-level-txt"><b>${L}</b><span>${levelName(L)}${best ? ` · mejor ★ ${best}` : ''}</span></div></div>
-        <small class="gx-hint">Empiezas fácil. Tras cada ronda dices cuántos segundos te han sobrado y la siguiente se ajusta a tu tiempo + 1 s. Tu ritmo se guarda para la próxima vez.</small>
-        <button type="button" class="btn small gx-reset" id="dryChReset">↺ Volver a nivel 1</button>`);
+      html += coachPanel(d);
       html += gsec('repeat', 'Rondas', grow('Repeticiones por ronda', gseg('chReps', d.chReps || 5, [[3, '3'], [5, '5'], [8, '8']]))
-        + '<small class="gx-hint">Sin desplazamientos ni cámara: el mismo escenario en todas las rondas.</small>');
+        + '<small class="gx-hint">El mismo escenario en todas las rondas. No necesita cámara: los desplazamientos y las ventanas son automáticos.</small>');
     } else {
       const p = selectedProgram();
       if (bodyNeeds(p)) html += detectionSec(false) + gsec('sound', 'Avisos', gtog('voice', d.voice, 'Dirección por voz', 'Dice «izquierda» o «derecha» al salir la flecha.'));
@@ -297,9 +293,72 @@ export function initDryFire(app) {
     }
     $('#drySettings').innerHTML = html;
   }
+  // ---- panel del entrenador: tu clase, el desafío elegido (progreso) y el catálogo ----
+  const zoneBar = (marks) => `<div class="cl-gauge">${[...CLASSES].reverse().map(([c, min], i, a) => {
+      const max = i + 1 < a.length ? a[i + 1][1] : 100;
+      return `<i style="--c:${CLS_COL[c]};flex:${max - min}"><b>${c}</b></i>`; }).join('')}
+    ${marks.map(([v, cls, t]) => `<em class="${cls}" style="left:${Math.max(0, Math.min(100, v))}%" title="${t}"></em>`).join('')}</div>`;
+  function spark(sessions) {
+    if (!sessions?.length) return '';
+    if (sessions.length < 2) return '<small class="gx-hint">Tu evolución sesión a sesión aparecerá aquí a partir de la segunda sesión.</small>';
+    const v = sessions.slice(-12).map((s) => s.avg), lo = Math.max(0, Math.min(...v) - 5), hi = Math.min(110, Math.max(...v) + 5), W = 220, H = 46;
+    const pts = v.map((y, i) => [v.length === 1 ? W / 2 : (i * W) / (v.length - 1), H - 4 - ((y - lo) / Math.max(1, hi - lo)) * (H - 8)]);
+    const path = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+    return `<svg class="cl-spark" viewBox="-4 0 ${W + 8} ${H}" preserveAspectRatio="none" aria-label="Evolución de tus sesiones">
+      <path d="${path}L${pts[pts.length - 1][0]},${H}L${pts[0][0]},${H}Z" class="area"/><path d="${path}" class="line"/>
+      ${pts.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.6"/>`).join('')}</svg>`;
+  }
+  // nivel de progresión (1–10): se gana sesión a sesión
+  function levelPanel(cur, st) {
+    const L = st?.level ?? 1, need = L < LEVELS ? LEVEL_REQ[L + 1] : null;
+    const last = st?.sessions?.[st.sessions.length - 1];
+    const okSessions = (st?.sessions || []).filter((x) => x.ok).length;
+    const prog = need && last ? Math.max(0, Math.min(1, last.avg / need)) : 0;
+    const nextPar = challengeProgram().blocks[0]?.par;
+    return gsec('sliders', `Nivel · ${esc(cur.name)}`,
+      `<div class="gx-level"><div class="gx-meter">${Array.from({ length: LEVELS }, (_, i) => `<i class="${i < L ? 'on' : ''} ${i === L ? 'next' : ''}" style="--k:${i / (LEVELS - 1)}" title="Nivel ${i + 1} · ${levelName(i + 1)}${i ? ` · media ≥ ${LEVEL_REQ[i + 1]} %` : ''}"></i>`).join('')}</div>
+        <div class="gx-level-txt"><b>${L}</b><span>${levelName(L)}</span></div></div>
+      ${need ? `<div class="lv-goal"><div class="lv-goal-h"><span>Para el nivel ${L + 1} · ${levelName(L + 1)}</span><b>media ≥ ${need} %</b></div>
+          <div class="lv-bar"><i style="width:${(prog * 100).toFixed(0)}%"></i></div>
+          <small>${!last ? 'Requisito: sesión completa, sin ningún «No llegué» y con esa media.'
+            : last.avg >= need ? `Tu última sesión (${fmtPct(last.avg)}) ya da esa media: repítela completa y sin ningún «No llegué» para subir.`
+            : `Última sesión: ${fmtPct(last.avg)} · te faltan ${fmtS1(Math.ceil((need - last.avg) * 10) / 10)} puntos. Requisito: sesión completa y sin ningún «No llegué».`}</small></div>`
+        : '<div class="gx-note">🏆 Nivel máximo: eres una leyenda en este desafío.</div>'}
+      <div class="lv-stats"><span><b>${st?.sessions?.length ?? 0}</b>sesiones</span><span><b>${okSessions}</b>completas</span><span><b>${fmtS1(nextPar)} s</b>1.ª ronda</span></div>
+      <small class="gx-hint">${esc(cur.desc)} Como mucho se sube un nivel por sesión.</small>`);
+  }
+  function coachPanel(d) {
+    const cur = drillById(d.challenge), st = statOf(d, cur.id), o = overall(d), tip = advice(d);
+    let html = '';
+    // tu clasificación general
+    html += gsec('trophy', 'Tu clasificación', o
+      ? `<div class="cl-me">${clsBadge(o.pct, 'xl')}<div><b>${classOf(o.pct)[2]}</b><span>${fmtPct(o.pct)} de media en ${o.n} ${o.n === 1 ? 'desafío' : 'desafíos'}</span><small>${o.levels} ${o.levels === 1 ? 'nivel conseguido' : 'niveles conseguidos'} de ${DRILLS.length * (LEVELS - 1)} · ${o.rounds} rondas</small></div></div>`
+      : '<div class="gx-note">Aún sin clasificar: haz una sesión de cualquier desafío para obtener tu clase.</div>')
+      + (tip ? `<button type="button" class="cl-tip" data-ch="${tip.id}"><span>🎯 Te recomiendo</span><b>${esc(drillById(tip.id).name)}</b><small>${esc(tip.why)}</small></button>` : '');
+    // el desafío elegido
+    const nextPar = challengeProgram().blocks[0]?.par;
+    html += levelPanel(cur, st);
+    const prov = st && st.rounds < PROVISIONAL;
+    html += gsec('target', `Rendimiento · ${esc(cur.name)}`, (st
+      ? `<div class="cl-cur"><div class="cl-big">${clsBadge(st.skill, 'lg')}<div><b>${fmtPct(st.skill)}</b><span>${classOf(st.skill)[2]}${prov ? ' · <i class="cl-prov">provisional</i>' : ''}</span>
+            <small>${prov ? `Clase definitiva tras ${PROVISIONAL} rondas (llevas ${st.rounds})` : `${st.rounds} rondas`}</small></div></div>
+          ${zoneBar([[st.skill, 'now', 'Tu media'], [st.best, 'best', 'Tu mejor ronda']])}
+          <div class="cl-legend"><span><i class="now"></i>Tu media</span><span><i class="best"></i>Mejor ronda ${fmtPct(st.best)}</span></div>
+          ${spark(st.sessions)}</div>`
+      : `<div class="gx-note">Nuevo: la primera ronda empieza holgada y se ajusta a ti en cuanto respondas.</div>${zoneBar([])}`)
+      + `<small class="gx-hint">Tu % respecto a un tirador de élite en seco, como las clases de IPSC (GM ≥ 95 %, M ≥ 85, A ≥ 75, B ≥ 60, C ≥ 40, D). La media cambia poco a poco: una buena sesión suelta no te sube arriba.</small>`
+      + (st ? '<button type="button" class="btn small gx-reset" id="dryChReset">↺ Borrar mi historial de este desafío</button>' : ''));
+    // catálogo
+    html += gsec('target', 'Desafíos', DRILL_CATS.map(([cat, label]) => `<div class="cl-cat"><h5>${label}</h5><div class="gx-chs">${DRILLS.filter((x) => x.cat === cat).map((x) => {
+      const s = statOf(d, x.id);
+      return `<button type="button" class="gx-ch ${x.id === cur.id ? 'on' : ''}" data-ch="${x.id}"><span><b>${esc(x.name)}</b><small>${esc(x.desc)}</small></span>
+        <em>${s ? `<span class="cl-row"><u>NV ${s.level}</u>${clsBadge(s.skill)}</span><i>${fmtPct(s.skill)}</i>` : 'NUEVO'}</em></button>`;
+    }).join('')}</div></div>`).join(''));
+    return html;
+  }
   function setPref(k, v) {
     const d = P();
-    if (k === 'detect') { if (v === 'auto') d.advance = 'auto'; else { d.advance = 'camera'; d.camera = v === 'camera'; } }
+    if (k === 'detect') { if (v === 'auto') { if (d.advance !== 'auto') d.moveDelay = 3; d.advance = 'auto'; } else { d.advance = 'camera'; d.camera = v === 'camera'; } }
     else d[k] = v;
     saveProfile();
     if (['challenge', 'chReps'].includes(k)) chCache = null;
@@ -318,8 +377,8 @@ export function initDryFire(app) {
     }
     const ch = t.closest('[data-ch]'); if (ch) { setPref('challenge', ch.dataset.ch); return; }
     if (t.closest('#dryChReset')) {
-      const d = P(); d.chLevels = { ...(d.chLevels || {}), [d.challenge]: 1 }; if (d.chFactor) delete d.chFactor[d.challenge]; saveProfile(); chCache = null; renderSettings(); describe();
-      toast('Este reto vuelve a empezar en nivel 1');
+      const d = P(); resetDrill(d, d.challenge); saveProfile(); chCache = null; renderSettings(); describe();
+      toast('Historial de este desafío borrado: vuelve a empezar sin clasificar');
     }
   });
 
@@ -330,7 +389,10 @@ export function initDryFire(app) {
     if (e.key === 'ArrowLeft') { keyHeld.left = true; e.preventDefault(); }
     if (e.key === 'ArrowRight') { keyHeld.right = true; e.preventDefault(); }
     if (e.key === 'ArrowDown') { keyHeld.down = true; e.preventDefault(); }
-    if (run?.phase === 'rate' && /^[0-6nN]$/.test(e.key)) { rate(/n/i.test(e.key) ? -1 : Number(e.key)); e.preventDefault(); return; }
+    if (run?.phase === 'ask' && /^[0-9nN]$/.test(e.key)) {
+      const btn = /n/i.test(e.key) ? $('#dryAskBtns [data-left="-1"]') : $$('#dryAskBtns [data-left]:not(.fail)')[Number(e.key)];
+      if (btn) rate(Number(btn.dataset.left)); e.preventDefault(); return;
+    }
     if (e.key === 'Escape') { if (stageBox.classList.contains('immersive')) { exitFull(); return; } if (run) stop('DETENIDO'); }
   });
   window.addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft') keyHeld.left = false; if (e.key === 'ArrowRight') keyHeld.right = false; if (e.key === 'ArrowDown') keyHeld.down = false; });
@@ -459,6 +521,12 @@ export function initDryFire(app) {
       program, needsMove, phase: 'setup', phaseAt: performance.now(), samples: [], simX: 0.5,
       bi: 0, rep: 0, moves: 0, totalMoves: 0, repsDone: 0, moveTimes: [], startAt: null, n: 1, lastTick: null,
     };
+    $('#dryAsk').classList.add('hidden');
+    if (program.challenge) {
+      const ch = program.challenge;
+      Object.assign(ch, { pcts: [], fails: 0, curPace: ch.pace });
+      program.blocks.forEach((bk) => setPar(bk, parFor(bk.elite, ch.pace, bk.tight)));
+    }
     prepareBlock(performance.now());
     view.transition = null; view.arrow = null; view.warn = null; view.timer = null; view.dim = 0;
     $('#dryStart').textContent = '↻ Reiniciar';
@@ -467,7 +535,7 @@ export function initDryFire(app) {
   function stop(text) {
     if (!run) return;
     clearTimers(); run.phase = 'done'; run.endAt = performance.now();
-    $('#dryRate').classList.add('hidden'); view.cond = null;
+    $('#dryAsk').classList.add('hidden'); view.cond = null; view.instr = null;
     if (run.program.challenge) chCache = null;
     Object.assign(view, { arrow: null, transition: null, warn: null, timer: null, dim: 0, big: text, sub: '', bigColor: '#d4ff3a', port: null, portHint: false });
     $('#dryStart').textContent = '▶ Empezar';
@@ -482,7 +550,10 @@ export function initDryFire(app) {
   // deja listo (y visible) el primer escenario del ejercicio actual
   function prepareBlock(now) {
     const b = blk();
-    view.cond = condText(b.cond) || null;
+    // etiqueta tras el beep: corta (la nota ya sale grande en la tarjeta de instrucciones)
+    view.cond = condText(b.cond ? { ...b.cond, note: '' } : null) || (b.cond?.note?.length <= 28 ? b.cond.note : '') || null;
+    const ins = b.type === 'course' || b.cond ? instructions(b) : [];
+    view.instr = ins.length ? { lines: ins, title: run.program.challenge ? b.name.toUpperCase() : 'INSTRUCCIONES' } : null;
     run.rep = 0; run.moves = 0; view.port = null; view.portHint = false;
     if (b.type === 'arena') {
       run.stage = randomStage(Date.now(), { activators: b.activators, prevTheme: run.stage?.theme ?? -1 });
@@ -503,7 +574,7 @@ export function initDryFire(app) {
   function goStandby(now, next) {
     run.afterStandby = next;
     run.standbyUntil = now + 1500 + Math.random() * 1300;
-    Object.assign(view, { big: 'PREPARADO', sub: `Espera el beep${view.cond ? ` · ${view.cond}` : ''}`, bigColor: '#d4ff3a', dim: 0 });
+    Object.assign(view, { big: 'PREPARADO', sub: run.program.challenge ? `Espera el beep · tiempo ${fmtS1(blk().par)} s` : view.instr ? 'Espera el beep' : `Espera el beep${view.cond ? ` · ${view.cond}` : ''}`, bigColor: '#d4ff3a', dim: 0 });
     setPhase('standby', now);
   }
 
@@ -540,7 +611,7 @@ export function initDryFire(app) {
     run.lastDir = 0; // cada repetición empieza hacia un lado al azar
     startBeep();
     run.startAt ??= now;
-    run.beepAt = now;
+    run.beepAt = now; view.condAt = now;
     view.big = null; view.sub = null; view.dim = 0;
     if (b.startMove) {
       // empieza en la galería vacía: la flecha sale con el beep y P1 entra al desplazarte
@@ -566,6 +637,8 @@ export function initDryFire(app) {
     const b = blk();
     endBeep();
     run.repsDone++;
+    if (run.program.challenge) {
+    }
     view.timer = null; view.arrow = null; view.transition = null;
     if (run.rep + 1 < b.reps) {
       run.rep++;
@@ -660,41 +733,56 @@ export function initDryFire(app) {
     } else endBlock(now);
   }
 
-  function askRating(now) {
-    const b = blk(), ch = run.program.challenge;
-    setPhase('rate', now);
-    Object.assign(view, { big: null, sub: null, timer: null, dim: 0.55 });
-    $('#dryRateSub').textContent = `${b.name} · tenías ${fmtS1(b.positions[0].time)} s · ${condText(b.cond) || 'dos manos, desde la funda'} · de media en la ronda`;
-    $('#dryRate').classList.remove('hidden');
+  // ---- Desafíos: al acabar cada ronda, ¿cuántos segundos te han sobrado? ----
+  // botones según la duración de la ronda (décimas en las cortas)
+  function leftSteps(par) {
+    const base = par < 3 ? [0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1, 1.5] : par < 6 ? [0.2, 0.4, 0.6, 0.8, 1, 1.5, 2, 3] : par < 10 ? [0.5, 1, 1.5, 2, 2.5, 3, 4, 5] : [0.5, 1, 2, 3, 4, 5, 6, 8];
+    return [0, ...base.filter((v) => v < par * 0.8)];
   }
-  // left: segundos que han sobrado (−1 = no llegó). Tu tiempo real + 1 s marca el ritmo de las rondas siguientes.
+  function askRound(now) {
+    const b = blk();
+    setPhase('ask', now);
+    Object.assign(view, { big: null, sub: null, timer: null, dim: 0.55, instr: null });
+    $('#dryAskSub').textContent = `${b.name} · tenías ${fmtS1(b.par)} s · ${instrText(b)}`;
+    const steps = leftSteps(b.par);
+    $('#dryAskBtns').innerHTML = '<button data-left="-1" class="fail">No llegué <kbd>N</kbd></button>'
+      + steps.map((v, i) => `<button data-left="${v}">${fmtS1(v)}${i === steps.length - 1 ? '+' : ''}${i < 10 ? `<kbd>${i}</kbd>` : ''}</button>`).join('');
+    $('#dryAsk').classList.remove('hidden');
+  }
+  // left: segundos que han sobrado (−1 = no llegó). Con tu tiempo se calcula tu % respecto a élite;
+  // las rondas siguientes se ajustan a ese ritmo (tu tiempo + un pequeño margen) y siguen apretando.
   function rate(left) {
-    if (run?.phase !== 'rate') return;
-    const ch = run.program.challenge, b = blk(), d = P();
-    const par = b.positions[0].time, raw = roundRaw(ch.base, b.cond, b.tight);
-    const yours = left < 0 ? par + 0.5 : Math.max(0.8, par - left);   // tu tiempo (aprox. si no llegaste)
-    const target = yours + 1;                                          // un segundo más de lo que has tardado
-    ch.ratings.push(left);
-    ch.F = Math.max(0.35, Math.min(2.2, target / raw));
-    const before = ch.level;
-    ch.level = levelFromFactor(ch.F);
-    d.chFactor = { ...(d.chFactor || {}), [ch.id]: +ch.F.toFixed(3) };
-    d.chLevels = { ...(d.chLevels || {}), [ch.id]: ch.level };
-    if (left >= 0) d.chBest = { ...(d.chBest || {}), [ch.id]: Math.max(d.chBest?.[ch.id] || 0, levelFromFactor(yours / raw)) };
+    if (run?.phase !== 'ask') return;
+    const ch = run.program.challenge, b = blk(), d = P(), par = b.par;
+    const yours = left < 0 ? par * 1.15 : Math.max(par * 0.2, par - left);   // tu tiempo (aprox. si no llegaste)
+    const pct = Math.min(100, (b.elite * 100) / yours);
+    if (left < 0) ch.fails++;
+    const prevSkill = statOf(d, ch.id)?.skill, prevCls = prevSkill != null ? classOf(prevSkill)[0] : null;
+    ch.pcts.push(pct);
+    const s = recordRound(d, ch.id, pct);
+    // ritmo base: tu ritmo deshaciendo el apretón de esta ronda; las siguientes aprietan en proporción
+    ch.curPace = Math.max(0.12, Math.min(1.2, (pct / 100) * (b.tight || 1)));
     saveProfile(); chCache = null;
-    // las rondas que quedan se ajustan a tu ritmo y siguen apretando desde ahí
-    run.program.blocks.forEach((bk, k) => { if (k > run.bi) bk.positions[0].time = roundTimeF(ch.base, bk.cond, bk.tight, ch.F); });
-    $('#dryRate').classList.add('hidden');
-    run.ratedBi = run.bi; view.dim = 0;
+    run.program.blocks.forEach((bk, k) => { if (k > run.bi) setPar(bk, parFor(bk.elite, ch.curPace, bk.tight)); });
+    $('#dryAsk').classList.add('hidden'); view.dim = 0;
+    const c = classOf(pct), nowCls = classOf(s.skill)[0];
+    run.lastResult = { pct, cls: c[0] };
     const nx = run.program.blocks[run.bi + 1];
-    toast(`${left < 0 ? `No llegaste en ${fmtS1(par)} s` : `Tu tiempo: ${fmtS1(yours)} s`} → ${nx ? `siguiente ronda: ${fmtS1(nx.positions[0].time)} s` : 'la próxima vez seguirás a este ritmo'} · nivel ${ch.level}${ch.level !== before ? ` (${ch.level > before ? '▲' : '▼'})` : ''}`, 4200);
+    if (prevCls && nowCls !== prevCls) {
+      const up = CLASSES.findIndex(([k]) => k === nowCls) < CLASSES.findIndex(([k]) => k === prevCls);
+      toast(up ? `🏆 ¡Subes a ${classOf(s.skill)[2]}! Tu media: ${fmtPct(s.skill)}` : `Bajas a ${classOf(s.skill)[2]} (${fmtPct(s.skill)}). ¡A recuperarla!`, 5000);
+      if (up) { sfx.tick(990, 0.1); timers.push(setTimeout(() => sfx.tick(1320, 0.14), 140)); }
+    } else toast(`${left < 0 ? `No llegaste en ${fmtS1(par)} s` : `Tu tiempo ≈ ${fmtS1(+yours.toFixed(2))} s`} · ${fmtPct(pct)} (${c[2]})${nx ? ` → siguiente ronda: ${fmtS1(nx.par)} s` : ''}`, 4200);
+    run.answered = run.bi;
     endBlock(performance.now());
   }
-  $('#dryRate').addEventListener('click', (e) => { const r = e.target.closest('[data-left]'); if (r) rate(Number(r.dataset.left)); });
+  $('#dryAsk').addEventListener('click', (e) => { const x = e.target.closest('[data-left]'); if (x) rate(Number(x.dataset.left)); });
+
+
 
   function endBlock(now) {
-    if (run.program.challenge && run.ratedBi !== run.bi) { askRating(now); return; }
     const prog = run.program;
+    if (prog.challenge && run.answered !== run.bi) { askRound(now); return; }
     if (run.bi + 1 < prog.blocks.length) {
       const restAfter = blk().restAfter ?? 10; // descanso tras el ejercicio que acaba de terminar
       run.bi++;
@@ -780,7 +868,7 @@ export function initDryFire(app) {
       const st = run.posStages?.[Math.max(0, run.posIdx ?? 0)] || run.stage;
       return run.startAt && st ? `ESCENARIO ${String(Math.max(0, run.posIdx ?? 0) + 1).padStart(2, '0')} · ${THEMES[st.theme].name.toUpperCase()}` : null;
     }
-    if (prog.challenge) return `RONDA ${run.bi + 1}/${prog.blocks.length} · REP ${Math.min(run.rep + 1, b.reps)}/${b.reps} · NIVEL ${prog.challenge.level} · ${fmtS1(b.positions[0].time)} s`;
+    if (prog.challenge) return `RONDA ${run.bi + 1}/${prog.blocks.length} · REP ${Math.min(run.rep + 1, b.reps)}/${b.reps} · ${fmtS1(b.par)} s`;
     let s = `EJ. ${run.bi + 1}/${prog.blocks.length} · ${b.name.toUpperCase()}`;
     if (b.type === 'stage') s += ` · REP ${run.rep + 1}/${b.reps}`;
     else if (b.type === 'course') s += ` · REP ${run.rep + 1}/${b.reps} · POS ${Math.max(0, run.posIdx) + 1}/${b.random?.on && !b.random.count ? '∞' : run.posList?.length ?? b.positions.length}`;
@@ -908,13 +996,16 @@ export function initDryFire(app) {
         return;
 
       case 'rest':
-        if (countdown(now, run.restUntil, `DESCANSO · siguiente: repetición ${run.rep + 1} de ${b.reps}${view.cond ? ` · ${view.cond}` : ''}`)) {
+        if (countdown(now, run.restUntil, run.program.challenge ? `DESCANSO · siguiente: repetición ${run.rep + 1} de ${b.reps} · ${fmtS1(b.par)} s`
+          : `DESCANSO · siguiente: repetición ${run.rep + 1} de ${b.reps}${view.cond ? ` · ${view.cond}` : ''}`)) {
           view.dim = 0;
           if (b.startMode === 'random') goStandby(now, 'rep'); else if (b.type === 'course') startCourseRep(now); else startRep(now);
         }
         return;
       case 'between':
-        if (countdown(now, run.betweenUntil, `SIGUIENTE: ${b.name} · ${run.program.challenge ? roundLabel(b) : blockSummary(b)}`)) goStandby(now, 'block');
+        if (countdown(now, run.betweenUntil, run.program.challenge
+          ? `${run.lastResult ? `Ronda anterior: ${fmtPct(run.lastResult.pct)} · clase ${run.lastResult.cls}  —  ` : ''}SIGUIENTE: ${b.name} · ${fmtS1(b.par)} s`
+          : `SIGUIENTE: ${b.name} · ${blockSummary(b)}`)) goStandby(now, 'block');
         return;
     }
   }
@@ -923,10 +1014,10 @@ export function initDryFire(app) {
     if (run.program.free) return goStandby(now, 'block');
     const b = blk();
     const ch = run.program.challenge;
-    Object.assign(view, { big: run.program.name, bigColor: '#d4ff3a', sub: ch
-      ? `Nivel ${ch.level} · ${levelName(ch.level)} · ${run.program.blocks.length} rondas de ${b.reps} repeticiones con el mismo escenario`
+    Object.assign(view, { big: run.program.name.toUpperCase(), bigColor: '#d4ff3a', sub: ch
+      ? `Nivel ${ch.startLevel} · ${levelName(ch.startLevel)} · ${ch.startSkill != null ? `${classOf(ch.startSkill)[2]} · ${fmtPct(ch.startSkill)}` : 'sin clasificar'} · ${run.program.blocks.length} rondas de ${b.reps} repeticiones`
       : `Ejercicio 1 de ${run.program.blocks.length}: ${b.name} · ${blockSummary(b)}` });
-    run.introUntil = now + 2800;
+    run.introUntil = now + (view.instr ? 4200 : 2800);
     setPhase('intro', now);
   }
 
@@ -940,19 +1031,36 @@ export function initDryFire(app) {
     parts.push(`${total.toFixed(1)} s`);
     if (run.moveTimes.length) parts.push(`reacción media ${(run.moveTimes.reduce((a, b) => a + b, 0) / run.moveTimes.length).toFixed(2)} s`);
     const ch = run.program.challenge;
+    let big = run.program.free ? 'COMPLETADO' : 'ENTRENAMIENTO COMPLETADO', color = '#d4ff3a';
     if (ch) {
       chCache = null;
-      const best = P().chBest?.[ch.id];
-      parts.unshift(`Nivel ${ch.startLevel} → ${ch.level} (${levelName(ch.level)})${best ? ` · mejor marca: nivel ${best}` : ''}`);
+      const d = P();
+      const res = recordSession(d, ch.id, ch.pcts, { fails: ch.fails, complete: ch.pcts.length === run.program.blocks.length, pace: ch.curPace }), s = statOf(d, ch.id);
+      saveProfile();
+      if (res) {
+        const c = classOf(res.avg);
+        parts.length = 0;
+        if (res.levelUp) {
+          big = `¡NIVEL ${res.level} · ${levelName(res.level).toUpperCase()}!`;
+          parts.push(`Media de la sesión ${fmtPct(res.avg)} (${c[2]})`);
+          sfx.tick(990, 0.1); timers.push(setTimeout(() => sfx.tick(1320, 0.12), 150), setTimeout(() => sfx.tick(1760, 0.16), 300));
+        } else {
+          big = `${c[2].toUpperCase()} · ${fmtPct(res.avg)}`; color = CLS_COL[c[0]];
+          if (res.need != null) parts.push(!res.complete ? `Nivel ${res.level + 1}: termina la sesión completa` : res.fails ? `Nivel ${res.level + 1}: necesitas una sesión sin «No llegué»` : `Nivel ${res.level + 1}: necesitas media ≥ ${res.need} %`);
+        }
+        parts.push(`mejor ronda ${fmtPct(Math.max(...ch.pcts))}`);
+        if (s) parts.push(ch.startSkill != null ? `tu media ${fmtPct(ch.startSkill)} → ${fmtPct(s.skill)} (${s.skill >= ch.startSkill ? '▲' : '▼'})` : `tu media: ${fmtPct(s.skill)}`);
+      } else big = 'RETO TERMINADO';
     }
-    view.cond = null;
-    Object.assign(view, { arrow: null, timer: null, dim: 0, big: ch ? 'RETO COMPLETADO' : run.program.free ? 'COMPLETADO' : 'ENTRENAMIENTO COMPLETADO', bigColor: '#d4ff3a', sub: parts.join(' · ') });
+    view.cond = null; view.instr = null;
+    Object.assign(view, { arrow: null, timer: null, dim: 0, big, bigColor: color, sub: parts.join(' · ') });
     if (ch) { describe(); renderSettings(); }
     say('Completado');
     $('#dryStart').textContent = '▶ Empezar';
   }
 
   let hudT = 0;
+  const clsCell = (id) => { const s = statOf(P(), id); return s ? `<i style="color:${CLS_COL[classOf(s.skill)[0]]}">${classOf(s.skill)[0]}</i> · ${fmtPct(s.skill)}` : '—'; };
   function updateHud(now) {
     if (now - hudT < 100) return; hudT = now;
     const time = run?.startAt ? ((run.phase === 'done' ? run.endAt : now) - run.startAt) / 1000 : 0;
@@ -961,7 +1069,7 @@ export function initDryFire(app) {
     const idle = idleProg;
     if (!run && idle && !idle.free) {
       html = idle.challenge
-        ? cell('RONDA', `– / ${idle.blocks.length}`) + cell('REPETICIÓN', `– / ${idle.blocks[0].reps}`) + cell('NIVEL', String(idle.challenge.level)) + cell('TIEMPO TOTAL', '0.0 s')
+        ? cell('RONDA', `– / ${idle.blocks.length}`) + cell('REPETICIÓN', `– / ${idle.blocks[0].reps}`) + cell('NIVEL', String(statOf(P(), idle.challenge.id)?.level ?? 1)) + cell('CLASE', clsCell(idle.challenge.id))
         : cell('EJERCICIOS', String(idle.blocks.length)) + cell('DURACIÓN', `≈ ${fmtDuration(programDuration(idle))}`) + cell('TIEMPO TOTAL', '0.0 s');
     } else if (!run || run.program.free) {
       const goal = P().moves;
@@ -969,7 +1077,7 @@ export function initDryFire(app) {
     } else {
       const b = blk(), n = run.program.blocks.length;
       if (run.program.challenge) html = cell('RONDA', `${run.bi + 1} / ${n}`) + cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`)
-        + cell('NIVEL', String(run.program.challenge.level)) + cell('TIEMPO TOTAL', `${time.toFixed(1)} s`);
+        + cell('NIVEL', String(statOf(P(), run.program.challenge.id)?.level ?? 1)) + cell('CLASE', clsCell(run.program.challenge.id));
       else html = cell('EJERCICIO', `${run.bi + 1} / ${n}`)
         + (b.type === 'stage' ? cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`)
           : b.type === 'course' ? cell('REPETICIÓN', `${Math.min(run.rep + 1, b.reps)} / ${b.reps}`) + cell('POSICIÓN', `${Math.max(0, run.posIdx ?? 0) + 1} / ${b.random?.on && !b.random.count ? '∞' : run.posList?.length ?? b.positions.length}`)
