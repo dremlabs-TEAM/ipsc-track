@@ -1,9 +1,9 @@
 // Inicio: presentación, selector de modo de entrenamiento (con los entrenamientos de «En seco») y acceso al manual.
-import { composeStage, finalizeStage, normHalf, kindWidth, THEME_COUNT } from './course.js?v=20261110-2249';
-import { StageRenderer } from './scene.js?v=20261110-2249';
+import { composeStage, finalizeStage, normHalf, kindWidth, THEME_COUNT } from './course.js?v=20261113-1732';
+import { StageRenderer } from './scene.js?v=20261113-1732';
 // (el selector de entrenamientos vive en «En seco»)
-import * as store from './storage.js?v=20261110-2249';
-import { programDuration, fmtDuration, blockSummary, randomPort } from './program.js?v=20261110-2249';
+import * as store from './storage.js?v=20261113-1732';
+import { programDuration, fmtDuration, blockSummary, randomPort } from './program.js?v=20261113-1732';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

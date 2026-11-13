@@ -4,13 +4,13 @@
 // · Ejercicio «recorrido»: escenario → beep → al segundo aparece la dirección → al desplazarte cambia el escenario.
 // · Ejercicio «escenario con tiempo»: beep inicial → tiempo máximo → beep final → descanso → siguiente repetición.
 //   El popper activador cae en el segundo elegido y pone en marcha el móvil.
-import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261110-2249';
-import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261110-2249';
-import { Analyzer } from './pose.js?v=20261110-2249';
-import { beep, audioCtx } from './timer.js?v=20261110-2249';
-import * as store from './storage.js?v=20261110-2249';
-import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, condText } from './program.js?v=20261110-2249';
-import { DRILLS, DRILL_CATS, drillById, buildDrill, setPar, parFor, instructions, CLASSES, classOf, fmtPct, statOf, recordRound, recordSession, resetDrill, overall, advice, LEVELS, LEVEL_REQ, levelName, PROVISIONAL } from './coach.js?v=20261110-2249';
+import { randomStage, composeStage, stageFromLayout, lobbyStage, layoutOf } from './course.js?v=20261113-1732';
+import { StageRenderer, THEMES, ACT, fallAtReal, moverAtReal } from './scene.js?v=20261113-1732';
+import { Analyzer } from './pose.js?v=20261113-1732';
+import { beep, audioCtx } from './timer.js?v=20261113-1732';
+import * as store from './storage.js?v=20261113-1732';
+import { blockSummary, programDuration, fmtDuration, migrateProgram, randomPort, WALL_RATE, condText } from './program.js?v=20261113-1732';
+import { DRILLS, DRILL_CATS, drillById, buildDrill, setPar, parFor, instructions, CLASSES, classOf, fmtPct, statOf, recordRound, recordSession, resetDrill, overall, advice, LEVELS, LEVEL_REQ, levelName, PROVISIONAL } from './coach.js?v=20261113-1732';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -231,7 +231,7 @@ export function initDryFire(app) {
       $('#dryBlocks').innerHTML = '';
       how = movesAuto()
         ? ['Pulsa «Empezar». Sale el escenario y suena el beep: resuélvelo en seco.', 'Sale una flecha y el escenario cambia solo a los segundos indicados.', 'Los muros con ventana se abren solos: la ventana se acerca hasta enmarcar el escenario.']
-        : ['Coloca la cámara a 3–4 m, a la altura del pecho, y sal de cuerpo entero. <b>Arma descargada y sin munición en la sala.</b>',
+        : ['Coloca la cámara a 3–4 m, a la altura del pecho. Basta con que se te vea de cintura para arriba (hombros y cabeza). <b>Arma descargada y sin munición en la sala.</b>',
           'Pulsa «Empezar» y quédate quieto en el centro mientras te calibra.', 'Sale el escenario y suena el beep. Al poco aparece una flecha: desplázate a ese lado y cambia el escenario.',
           'Si aparece un muro con ventana, agáchate para ver el escenario.', 'Sin cámara a mano: cambia la detección a «Automático» y el escenario cambiará solo.'];
     } else {
@@ -259,7 +259,7 @@ export function initDryFire(app) {
     // en «Varios escenarios» solo cámara o automático; en «Mis entrenamientos», cámara o teclado
     const opts = withAuto ? [['camera', '📷 Cámara'], ['auto', '⏱ Automático']] : [['camera', '📷 Cámara'], ['keys', '⌨ Teclado']];
     const hint = det === 'auto' ? 'Sin cámara: el escenario cambia solo y las ventanas se abren solas.'
-      : det === 'camera' ? 'La cámara detecta cuándo te desplazas y cuándo te agachas.' : 'Mantén ← o → para desplazarte y ↓ para agacharte.';
+      : det === 'camera' ? 'La cámara sigue tus hombros: detecta cuándo te desplazas y cuándo te agachas. Basta con verte de cintura para arriba.' : 'Mantén ← o → para desplazarte y ↓ para agacharte.';
     let body = gseg('detect', det, opts) + `<small class="gx-hint">${hint}</small>`;
     if (det === 'camera') body += grow('Desplazamiento necesario', gseg('moveFactor', d.moveFactor, [[1, 'Corto'], [2, 'Medio'], [3, 'Largo']]));
     if (det !== 'auto') body += grow('Espacio a cada lado', gseg('range', d.range, [[1, '1 paso'], [2, '2 pasos'], [0, 'Libre']]), 'Para que la flecha no te saque de tu zona.');
@@ -481,23 +481,30 @@ export function initDryFire(app) {
   document.addEventListener('fullscreenchange', updateFullBtn);
   document.addEventListener('webkitfullscreenchange', updateFullBtn);
 
-  // posición lateral (centro de cadera) en espejo: «izquierda» = tu izquierda
+  // Solo la parte de arriba del cuerpo (hombros y cabeza): funciona aunque las piernas y la cadera
+  // queden tapadas (p. ej. entrenando detrás de un sofá). Las caderas que el modelo «se inventa» cuando
+  // no se ven hacían temblar la posición, así que ya no se usan.
+  //  · desplazamiento lateral = centro de los hombros (o la nariz si falta un hombro), suavizado
+  //  · agacharse = cuánto bajan los hombros
   function onPoseFrame(cur) {
     const lm = an.img;
     if (!lm || !cur) { lastPose = null; return; }
-    const LS = lm[11], RS = lm[12], LH = lm[23], RH = lm[24];
+    const N = lm[0], LS = lm[11], RS = lm[12];
     const vis = (q) => (q.visibility ?? 1) >= 0.3;
-    // punto central del cuerpo: media de los hombros y caderas que se vean (no hace falta verlos todos)
-    const pts = [LS, RS, LH, RH].filter(vis);
-    if (pts.length < 2) { lastPose = null; return; }
-    const cx = pts.reduce((a, q) => a + q.x, 0) / pts.length;
-    const sy = vis(LS) && vis(RS) ? (LS.y + RS.y) / 2 : null;
-    const torso = sy != null && vis(LH) && vis(RH) ? Math.max(0.02, (LH.y + RH.y) / 2 - sy) : lastPose?.torso;
+    const both = vis(LS) && vis(RS);
+    let cx, sy;
+    if (both) { cx = (LS.x + RS.x) / 2; sy = (LS.y + RS.y) / 2; }
+    else if (vis(N) && (vis(LS) || vis(RS))) { const S = vis(LS) ? LS : RS; cx = N.x; sy = S.y; }
+    else if (vis(N)) { cx = N.x; sy = null; }
+    else { lastPose = null; return; }
+    const sw = both ? Math.abs(LS.x - RS.x) : lastPose?.sw ?? 0.1;
     // en espejo para que «izquierda» sea tu izquierda (salvo que la cámara ya envíe la imagen invertida)
-    const tops = [lm[0], LS, RS].filter(vis);
-    const top = tops.length ? tops.reduce((a, q) => a + q.y, 0) / tops.length : null;
+    const rawX = P().mirrored ? cx : 1 - cx;
+    const prev = lastPose && performance.now() - lastPose.t < 300 ? lastPose : null;
+    const x = prev ? prev.x * 0.4 + rawX * 0.6 : rawX; // suavizado ligero: menos temblor, casi sin retraso
+    const top = sy ?? (prev?.top != null && vis(N) ? prev.top : null);
     if (top != null) { topHist.push({ t: performance.now(), top }); while (topHist.length > 120) topHist.shift(); }
-    lastPose = { top, t: performance.now(), x: P().mirrored ? cx : 1 - cx, sw: vis(LS) && vis(RS) ? Math.abs(LS.x - RS.x) : lastPose?.sw ?? 0.1, y: sy ?? lastPose?.y, torso };
+    lastPose = { top, t: performance.now(), x, sw, y: sy ?? prev?.y };
   }
   function pose() {
     if (P().camera) return lastPose && performance.now() - lastPose.t < 500 ? lastPose : null;
@@ -657,14 +664,15 @@ export function initDryFire(app) {
     const recent = topHist.filter((h) => h.t >= now - 2500);
     run.standTop = recent.length ? Math.min(...recent.map((h) => h.top)) : null;
   }
-  // cuánto te has agachado: 1 = suficiente (la cabeza/hombros bajan ~1/3 del largo del torso)
+  // cuánto te has agachado: 1 = suficiente. Se mide por cuánto bajan los hombros, en proporción a su
+  // anchura (siempre visible): bajar ~el 45 % del ancho de hombros (unos 18–20 cm) cuenta como agacharse.
   function crouchAmount(p) {
     if (!p) return 0;
     if (p.sim) return keyHeld.down ? 1 : 0;
     if (p.top == null) return 0;
     if (run.standTop == null || p.top < run.standTop) run.standTop = p.top; // aún de pie: actualiza la referencia
-    const torso = run.torso || p.torso || 0.22;
-    return clamp((p.top - run.standTop) / (0.33 * torso), 0, 1.2);
+    const sw = run.sw0 || p.sw || 0.12;
+    return clamp((p.top - run.standTop) / (0.45 * sw), 0, 1.2);
   }
   const crouched = (p) => crouchAmount(p) >= 1;
   // true = aún tras el muro · 'opened' = acaba de verse el escenario · false = sin muro o ya abierto
@@ -895,15 +903,14 @@ export function initDryFire(app) {
     switch (run.phase) {
       case 'setup': {
         if (!run.needsMove) return intro(now);
-        if (!p) { Object.assign(view, { big: 'NO TE VEO', sub: 'Ponte de cuerpo entero frente a la cámara, en el centro', bigColor: '#ff6b6b' }); run.samples = []; return; }
+        if (!p) { Object.assign(view, { big: 'NO TE VEO', sub: 'Ponte frente a la cámara, en el centro: basta con que se vean tus hombros y tu cabeza', bigColor: '#ff6b6b' }); run.samples = []; return; }
         run.samples.push(p);
         Object.assign(view, { big: 'CALIBRANDO', sub: 'Quieto en el centro…', bigColor: '#d4ff3a' });
         if (run.samples.length >= (p.sim ? 1 : 15)) {
           run.x0 = run.samples.reduce((a, s) => a + s.x, 0) / run.samples.length;
-          const sw = run.samples.reduce((a, s) => a + s.sw, 0) / run.samples.length;
+          run.sw0 = run.samples.reduce((a, s) => a + s.sw, 0) / run.samples.length; // ancho de hombros de referencia
           run.T = MOVE_STEP[P().moveFactor] ?? 0.08; // fracción del ancho de la imagen
           run.y0 = run.samples.reduce((a, s) => a + (s.y ?? 0), 0) / run.samples.length;
-          run.torso = run.samples.reduce((a, s) => a + (s.torso ?? 0.25), 0) / run.samples.length;
           intro(now);
         }
         return;

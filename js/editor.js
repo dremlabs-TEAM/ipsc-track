@@ -4,15 +4,15 @@
 // configurar cada elemento (tarjetas, poppers, placas, móviles, muros, bidones…).
 import {
   composeStage, stageFromLayout, layoutOf, finalizeStage, PERSPECTIVE, makeStyle, randomKind, TARGET_KINDS, KIND_LABEL, HARD_PRESETS, kindWidth,
-} from './course.js?v=20261110-2249';
-import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261110-2249';
-import { openPdf, readPage } from './pdf-import.js?v=20261110-2249';
-import { stageToExercise } from './pdf-stage.js?v=20261110-2249';
-import * as store from './storage.js?v=20261110-2249';
+} from './course.js?v=20261113-1732';
+import { StageRenderer, THEMES, ACT, styleOf, stackHeight } from './scene.js?v=20261113-1732';
+import { openPdf, readPage } from './pdf-import.js?v=20261113-1732';
+import { stageToExercise } from './pdf-stage.js?v=20261113-1732';
+import * as store from './storage.js?v=20261113-1732';
 import {
   newProgram, newExercise, migrateBlock, newCoursePosition, defaultComp, exampleProgram, defaultCond, condText, HAND_LABEL, START_LABEL, blockSummary, blockDuration, programDuration, fmtDuration,
   shareUrl, sanitizeProgram, MOVER_LABEL, DIST_LABEL, DIR_LABEL, DIR_ARROW, defaultPort,
-} from './program.js?v=20261110-2249';
+} from './program.js?v=20261113-1732';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

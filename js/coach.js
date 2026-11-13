@@ -3,8 +3,9 @@
 // Rendimiento como en la clasificación IPSC/USPSA: % respecto a un tiempo de referencia de élite para ese
 // ejercicio y esas condiciones (escenario, disparos, salida, desplazamiento, muro, recarga, mano).
 // Clases: D < 40 % · C 40–60 · B 60–75 · A 75–85 · M 85–95 · GM ≥ 95. Nivel 1–100 = tu media (lenta).
-import { composeStage, layoutOf } from './course.js?v=20261110-2249';
-import { defaultCond, defaultRandom, randomPort, START_LABEL } from './program.js?v=20261110-2249';
+import { composeStage, layoutOf } from './course.js?v=20261113-1732';
+import { ACT } from './scene.js?v=20261113-1732';
+import { defaultCond, defaultRandom, randomPort, START_LABEL } from './program.js?v=20261113-1732';
 
 // ---------------- catálogo ----------------
 // scene: composición del escenario (siempre el mismo en todo el desafío) · shots: disparos por repetición
@@ -108,6 +109,24 @@ export function roundRef(shots, r, extra = 0) {
   return t * (r.hand && r.hand !== 'free' ? 1.35 : 1);
 }
 export const eliteTime = (shots, r, extra = 0) => roundRef(shots, r, extra) * ELITE;
+
+// ---------------- límites físicos del escenario ----------------
+// El tiempo de élite nunca puede ser menor que lo que el propio escenario tarda en dejarte disparar:
+// el desplazamiento de salida, la ventana del muro abriéndose o el móvil apareciendo tras el popper activador.
+export const ACTIVATOR_AT = 1.3; // el popper activador (el primer disparo, al que activa el móvil) cae a los 1,3 s
+const MOVE_SHOW = 0.7 + 0.7;     // salida con desplazamiento: flecha 0,7 s + transición 0,7 s
+const PORT_OPEN = 1.1;           // la ventana del muro tarda 1,1 s en abrirse
+function moverAppearsAt(at = ACTIVATOR_AT) { // segundos desde que se ve el escenario hasta que el móvil empieza a moverse
+  const ms = at * 1000;
+  if (ms < ACT.fallStart) return (ACT.moverStart / (ACT.fallStart / ms)) / 1000;
+  return (ms - ACT.fallStart + ACT.moverStart) / 1000;
+}
+function physicalFloor(scene, rd, shots) {
+  const shown = rd.move ? MOVE_SHOW : rd.port ? PORT_OPEN : 0;
+  let floor = shown + 0.25 + shots * 0.15;
+  if (scene?.mover && scene.mover !== 'none') floor = Math.max(floor, shown + moverAppearsAt() + 0.2 + 2 * 0.15);
+  return floor;
+}
 // redondeo según la duración (5 centésimas en los muy cortos, décimas en los cortos)
 export const roundPar = (t) => (t < 3 ? Math.round(t * 20) / 20 : t < 6 ? Math.round(t * 10) / 10 : Math.round(t * 2) / 2);
 // margen tras tu tiempo: +1 s en ejercicios largos, unas décimas en los cortos
@@ -198,10 +217,10 @@ export function buildDrill(drill, d, reps = 5) {
   if (def.place) layout.items = def.place(layout.items, Math.random);
   const blocks = def.rounds.map((rd, i) => {
     const cond = { ...defaultCond(), hand: rd.hand || 'free', start: rd.start || 'holster', reload: !!rd.reload, note: rd.note || '' };
-    const elite = eliteTime(def.shots, rd, def.extra || 0);
+    const elite = Math.max(eliteTime(def.shots, rd, def.extra || 0), physicalFloor(def.scene, rd, def.shots));
     return {
       id: `r${i}`, type: 'course', name: `Ronda ${i + 1} de ${def.rounds.length}`, cond, tight: rd.tight || 1, elite, rd,
-      positions: [{ id: `p${i}`, dir: rd.move ? 'random' : 'none', time: 1, advance: 'auto', moveDelay: 0.7, activatorAt: 0.8,
+      positions: [{ id: `p${i}`, dir: rd.move ? 'random' : 'none', time: 1, advance: 'auto', moveDelay: 0.7, activatorAt: ACTIVATOR_AT,
         comp, layout, port: rd.port ? randomPort('auto', 0) : null, randomScene: false }],
       reps, rest: 6, startMode: 'random', restAfter: 12, startMove: !!rd.move, maxTime: 0, random: defaultRandom(),
     };
